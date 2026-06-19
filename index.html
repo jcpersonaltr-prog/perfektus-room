@@ -1,846 +1,765 @@
 <!DOCTYPE html>
 <html lang="pt">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
 <title>Perfektus Training Room</title>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body, #root { height: 100%; }
-  body { background: #030508; overflow: hidden; -webkit-font-smoothing: antialiased; }
-  input::placeholder { color: #0a1820 !important; }
-  input:focus { border-color: rgba(0,255,136,0.35) !important; outline: none; }
-  button { font-family: inherit; transition: opacity 0.15s; }
-  button:hover:not(:disabled) { opacity: 0.82; }
-  @keyframes glowPulse {
-    0%,100% { box-shadow: 0 0 60px var(--pc,rgba(0,255,136,.25)), 0 40px 100px rgba(0,0,0,.9); }
-    50%      { box-shadow: 0 0 130px var(--pc,rgba(0,255,136,.42)), 0 40px 100px rgba(0,0,0,.9); }
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(0,255,136,0.15); border-radius: 2px; }
+*{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased}
+html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#03050a;color:#fff;overflow:hidden}
+button{font-family:inherit;cursor:pointer;transition:opacity .15s;border:none;outline:none}
+button:hover:not(:disabled){opacity:.82}
+input{font-family:inherit;outline:none;color:#fff}
+input::placeholder{color:#1a2a38}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes glow{0%,100%{box-shadow:0 0 60px var(--gc,rgba(0,255,136,.25)),0 40px 100px rgba(0,0,0,.9)}50%{box-shadow:0 0 130px var(--gc,rgba(0,255,136,.42)),0 40px 100px rgba(0,0,0,.9)}}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:rgba(0,255,136,.15);border-radius:2px}
 </style>
 </head>
 <body>
-<div id="root"></div>
+<div id="app"></div>
+<script>
+/* ══════════════════════════════════
+   AUDIO
+══════════════════════════════════ */
+function beep(hz,dur,vol){
+  hz=hz||880;dur=dur||0.18;vol=vol||0.5;
+  try{
+    var ac=new(window.AudioContext||window.webkitAudioContext)();
+    var o=ac.createOscillator(),g=ac.createGain();
+    o.connect(g);g.connect(ac.destination);
+    o.frequency.value=hz;o.type='sine';
+    g.gain.setValueAtTime(vol,ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+dur);
+    o.start();o.stop(ac.currentTime+dur+0.05);
+    setTimeout(function(){ac.close();},(dur+0.2)*1000);
+  }catch(e){}
+}
+function fanfare(){
+  beep(880,.1,.7);
+  setTimeout(function(){beep(1100,.1,.6);},180);
+  setTimeout(function(){beep(1320,.85,.8);},360);
+}
 
-<script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
-
-/* ══════════════════════════════════════════
-   AUDIO UTILS
-══════════════════════════════════════════ */
-const beep = (hz=880, dur=0.18, vol=0.5) => {
-  try {
-    const ac = new (window.AudioContext||window.webkitAudioContext)();
-    const o = ac.createOscillator(), g = ac.createGain();
-    o.connect(g); g.connect(ac.destination);
-    o.frequency.value = hz; o.type = "sine";
-    g.gain.setValueAtTime(vol, ac.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
-    o.start(); o.stop(ac.currentTime + dur + 0.05);
-    setTimeout(() => ac.close(), (dur+0.2)*1000);
-  } catch(_){}
-};
-const fanfare = () => {
-  beep(880,0.1,0.7);
-  setTimeout(()=>beep(1100,0.1,0.6),180);
-  setTimeout(()=>beep(1320,0.85,0.8),360);
-};
-
-/* ══════════════════════════════════════════
+/* ══════════════════════════════════
    HELPERS
-══════════════════════════════════════════ */
-const fmt = s => s>=60 ? `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}` : String(s).padStart(2,"0");
-const slugify = s => s.toLowerCase().replace(/[^a-z0-9]/g,"-").replace(/-+/g,"-");
+══════════════════════════════════ */
+function fmt(s){
+  if(s>=60) return Math.floor(s/60)+':'+(s%60<10?'0':'')+s%60;
+  return s<10?'0'+s:''+s;
+}
+function slugify(s){return s.toLowerCase().replace(/[^a-z0-9]/g,'-').replace(/-+/g,'-');}
+function el(tag,css,attrs){
+  var e=document.createElement(tag);
+  if(css) e.style.cssText=css;
+  if(attrs) Object.keys(attrs).forEach(function(k){if(k!=='style')e[k]=attrs[k];});
+  return e;
+}
+function div(css){return el('div',css);}
+function btn(text,css,onclick){
+  var b=el('button',css);
+  b.innerHTML=text;
+  if(onclick) b.onclick=onclick;
+  return b;
+}
+function inp(placeholder,css){
+  var i=el('input','',{type:'text',placeholder:placeholder});
+  i.style.cssText=css||'';
+  return i;
+}
 
-const loadPeer = () => new Promise(res => {
-  if (window.Peer) { res(); return; }
-  const el = document.createElement("script");
-  el.src = "https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js";
-  el.onload = res;
-  document.head.appendChild(el);
-});
-
-/* ══════════════════════════════════════════
-   CONSTANTS
-══════════════════════════════════════════ */
-const PHASE = {
-  idle: { color:"#2a3a50", label:"PRONTO",       bg:"rgba(20,35,55,0.55)"   },
-  work: { color:"#00ff88", label:"💪 TRABALHO",  bg:"rgba(0,255,136,0.09)"  },
-  rest: { color:"#ff3d5a", label:"😤 DESCANSO",  bg:"rgba(255,61,90,0.09)"  },
-  done: { color:"#ffd700", label:"🏆 COMPLETO!", bg:"rgba(255,215,0,0.09)"  },
+/* ══════════════════════════════════
+   STATE
+══════════════════════════════════ */
+var S={
+  page:'landing',
+  isHost:false,
+  roomId:'',
+  myName:'',
+  status:'',
+  errMsg:'',
+  micOn:true,
+  camOn:true,
+  remotes:{},         // {peerId:{name,stream,videoEl}}
+  cfg:{work:40,rest:20,rounds:8},
+  timer:{phase:'idle',round:0,total:0,left:0},
+  timerOn:false,
+  panelOpen:false,
+  peer:null,
+  calls:{},
+  conns:{},
+  localStream:null,
+  timerIv:null,
+  ts:{},
 };
 
-const PRESETS = [
-  { n:"Tabata",       w:20,  r:10, rds:8  },
-  { n:"40/20",        w:40,  r:20, rds:8  },
-  { n:"30/30",        w:30,  r:30, rds:10 },
-  { n:"Boxe 3′",      w:180, r:60, rds:6  },
-  { n:"AMRAP 5′",     w:300, r:60, rds:5  },
-  { n:"Sprint 15/45", w:15,  r:45, rds:12 },
-];
+/* ══════════════════════════════════
+   PEERJS LOADER
+══════════════════════════════════ */
+function loadPeer(cb){
+  if(window.Peer){cb();return;}
+  var s=document.createElement('script');
+  s.src='https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js';
+  s.onload=cb;
+  document.head.appendChild(s);
+}
 
-/* ══════════════════════════════════════════
-   MAIN APP
-══════════════════════════════════════════ */
-function App() {
-  const [page, setPage]     = useState("landing");
-  const [isHost, setIsHost] = useState(false);
-  const [roomId, setRoomId] = useState("");
-  const [myName, setMyName] = useState("");
-  const [status, setStatus] = useState("");
-  const [errMsg, setErrMsg] = useState("");
+/* ══════════════════════════════════
+   TIMER ENGINE
+══════════════════════════════════ */
+function killTimer(){clearInterval(S.timerIv);}
 
-  /* Video */
-  const localRef    = useRef(null);
-  const localStream = useRef(null);
-  const [remotes, setRemotes] = useState({});
-  const [micOn, setMicOn]     = useState(true);
-  const [camOn, setCamOn]     = useState(true);
-  const remoteRefs = useRef({});
-
-  /* PeerJS */
-  const peerInst = useRef(null);
-  const calls    = useRef({});
-  const conns    = useRef({});
-
-  /* Timer */
-  const [cfg, setCfg]           = useState({ work:40, rest:20, rounds:8 });
-  const [timer, setTimer]       = useState({ phase:"idle", round:0, total:0, left:0 });
-  const [timerOn, setTimerOn]   = useState(false);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const ivRef = useRef(null);
-  const ts    = useRef({});
-
-  /* Read ?room= from URL */
-  useEffect(() => {
-    const r = new URLSearchParams(window.location.search).get("room");
-    if (r) setRoomId(r);
-  }, []);
-
-  /* Sync remote streams */
-  useEffect(() => {
-    Object.entries(remotes).forEach(([id,{stream}]) => {
-      const el = remoteRefs.current[id];
-      if (el && el.srcObject !== stream) el.srcObject = stream;
-    });
-  }, [remotes]);
-
-  /* ─── Timer engine ─── */
-  const killTimer = useCallback(()=>clearInterval(ivRef.current),[]);
-
-  const applyCmd = useCallback(cmd => {
-    if (cmd.action==="stop") {
-      killTimer();
-      setTimerOn(false);
-      setTimer(p=>({...p, phase:"idle"}));
-      return;
-    }
-    if (cmd.action==="reset") {
-      killTimer();
-      setTimerOn(false);
-      setTimer({phase:"idle",round:0,total:0,left:0});
-      return;
-    }
-    if (cmd.action==="start") {
-      killTimer();
-      const {work,rest,rounds} = cmd;
-      ts.current = {phase:"work",round:1,work,rest,total:rounds,left:work};
-      setTimerOn(true);
-      setTimer({phase:"work",round:1,total:rounds,left:work});
-      beep(880,0.4,0.8);
-
-      ivRef.current = setInterval(()=>{
-        const s = ts.current;
-        s.left -= 1;
-        if (s.left>0 && s.left<=3) beep(660,0.06,0.28);
-
-        if (s.left<=0) {
-          if (s.phase==="work") {
-            if (s.round >= s.total) {
-              clearInterval(ivRef.current);
-              s.phase="done";
-              setTimer(p=>({...p,phase:"done",left:0}));
-              fanfare();
-              return;
-            }
-            s.phase="rest"; s.left=s.rest;
-            setTimer({phase:"rest",round:s.round,total:s.total,left:s.rest});
-            beep(440,0.3,0.5);
-          } else {
-            s.round++; s.phase="work"; s.left=s.work;
-            setTimer({phase:"work",round:s.round,total:s.total,left:s.work});
-            beep(880,0.4,0.8);
+function applyCmd(cmd){
+  if(cmd.action==='stop'){
+    killTimer();S.timerOn=false;
+    S.timer={phase:'idle',round:S.timer.round,total:S.timer.total,left:0};
+    renderRoom();return;
+  }
+  if(cmd.action==='reset'){
+    killTimer();S.timerOn=false;
+    S.timer={phase:'idle',round:0,total:0,left:0};
+    renderRoom();return;
+  }
+  if(cmd.action==='start'){
+    killTimer();
+    var w=cmd.work,r=cmd.rest,rds=cmd.rounds;
+    S.ts={phase:'work',round:1,work:w,rest:r,total:rds,left:w};
+    S.timerOn=true;
+    S.timer={phase:'work',round:1,total:rds,left:w};
+    renderRoom();
+    beep(880,.4,.8);
+    S.timerIv=setInterval(function(){
+      var ts=S.ts;
+      ts.left-=1;
+      if(ts.left>0&&ts.left<=3) beep(660,.06,.28);
+      if(ts.left<=0){
+        if(ts.phase==='work'){
+          if(ts.round>=ts.total){
+            clearInterval(S.timerIv);
+            ts.phase='done';
+            S.timer={phase:'done',round:ts.round,total:ts.total,left:0};
+            S.timerOn=true;
+            renderRoom();fanfare();return;
           }
+          ts.phase='rest';ts.left=ts.rest;
+          S.timer={phase:'rest',round:ts.round,total:ts.total,left:ts.rest};
+          beep(440,.3,.5);
         } else {
-          setTimer(p=>({...p,left:s.left}));
+          ts.round++;ts.phase='work';ts.left=ts.work;
+          S.timer={phase:'work',round:ts.round,total:ts.total,left:ts.work};
+          beep(880,.4,.8);
         }
-      },1000);
-    }
-  },[killTimer]);
+      } else {
+        S.timer.left=ts.left;
+      }
+      updateTimerDisplay();
+    },1000);
+  }
+}
 
-  const bcast = useCallback(cmd=>{
-    Object.values(conns.current).forEach(c=>{ try{c.send(cmd);}catch(_){} });
-  },[]);
+function bcast(cmd){
+  Object.values(S.conns).forEach(function(c){try{c.send(cmd);}catch(e){}});
+}
 
-  /* ─── Join Room ─── */
-  const joinRoom = async (asHost) => {
-    if (!roomId.trim()) return;
-    setErrMsg(""); setIsHost(asHost); setPage("room");
-    setStatus("📷 A iniciar câmara...");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
-      localStream.current = stream;
-      if (localRef.current) localRef.current.srcObject = stream;
-      setStatus("🔌 A ligar à rede P2P...");
-      await loadPeer();
-
-      const slug   = slugify(roomId);
-      const hostId = `pm-${slug}-host`;
-      const myId   = asHost ? hostId : `pm-${slug}-${Date.now()}`;
-
-      const peer = new window.Peer(myId, {
-        config: { iceServers: [
-          {urls:"stun:stun.l.google.com:19302"},
-          {urls:"stun:stun1.l.google.com:19302"},
-          {urls:"stun:stun.cloudflare.com:3478"},
-        ]},
+/* ══════════════════════════════════
+   JOIN ROOM
+══════════════════════════════════ */
+function joinRoom(asHost){
+  if(!S.roomId.trim()) return;
+  S.errMsg='';S.isHost=asHost;S.page='room';S.status='📷 A iniciar câmara...';
+  render();
+  navigator.mediaDevices.getUserMedia({video:true,audio:true})
+  .then(function(stream){
+    S.localStream=stream;
+    var lv=document.getElementById('local-video');
+    if(lv) lv.srcObject=stream;
+    S.status='🔌 A ligar à rede P2P...';
+    setStatus(S.status);
+    loadPeer(function(){
+      var slug=slugify(S.roomId);
+      var hostId='pm-'+slug+'-host';
+      var myId=asHost?hostId:'pm-'+slug+'-'+Date.now();
+      var peer=new window.Peer(myId,{
+        config:{iceServers:[
+          {urls:'stun:stun.l.google.com:19302'},
+          {urls:'stun:stun1.l.google.com:19302'},
+          {urls:'stun:stun.cloudflare.com:3478'},
+        ]}
       });
-      peerInst.current = peer;
+      S.peer=peer;
 
-      peer.on("open", () => {
-        setStatus(asHost ? "✅ Sala aberta — a aguardar clientes..." : "✅ Ligado!");
+      peer.on('open',function(){
+        S.status=asHost?'✅ Sala aberta — a aguardar clientes...':'✅ Ligado!';
+        setStatus(S.status);
 
-        if (!asHost) {
-          const conn = peer.connect(hostId, {reliable:true, metadata:{name:myName||"Participante"}});
-          conn.on("open", ()=>{
-            conns.current[hostId] = conn;
-            conn.on("data", applyCmd);
-            conn.on("close", ()=>delete conns.current[hostId]);
+        if(!asHost){
+          var conn=peer.connect(hostId,{reliable:true,metadata:{name:S.myName||'Participante'}});
+          conn.on('open',function(){
+            S.conns[hostId]=conn;
+            conn.on('data',applyCmd);
+            conn.on('close',function(){delete S.conns[hostId];});
           });
-          conn.on("error", ()=>setErrMsg("❌ Sala não encontrada. Verifica o nome da sala."));
-
-          const call = peer.call(hostId, stream, {metadata:{name:myName||"Participante"}});
-          calls.current[hostId] = call;
-          call.on("stream", s=>{
-            setRemotes(r=>({...r,[hostId]:{name:"Trainer",stream:s}}));
-            setStatus("");
+          conn.on('error',function(){
+            S.errMsg='❌ Sala não encontrada. Verifica o nome.';
+            setErr(S.errMsg);
           });
-          call.on("close", ()=>setRemotes(r=>{const n={...r};delete n[hostId];return n;}));
+          var call=peer.call(hostId,stream,{metadata:{name:S.myName||'Participante'}});
+          S.calls[hostId]=call;
+          call.on('stream',function(rs){
+            addRemote(hostId,'Trainer',rs);
+            S.status='';setStatus('');
+          });
+          call.on('close',function(){removeRemote(hostId);});
         }
       });
 
-      /* Host: accept connections */
-      peer.on("connection", conn=>{
-        const name = conn.metadata?.name||"Participante";
-        conns.current[conn.peer] = conn;
-        conn.on("close", ()=>{
-          delete conns.current[conn.peer];
-          setRemotes(r=>{const n={...r};delete n[conn.peer];return n;});
-        });
-        setTimeout(()=>{
-          if (!peerInst.current) return;
-          const call = peerInst.current.call(conn.peer,stream,{metadata:{name:myName||"Trainer"}});
-          call.on("stream",s=>{
-            calls.current[conn.peer]=call;
-            setRemotes(r=>({...r,[conn.peer]:{name,stream:s}}));
-            setStatus("");
+      peer.on('connection',function(conn){
+        var name=conn.metadata&&conn.metadata.name?conn.metadata.name:'Participante';
+        S.conns[conn.peer]=conn;
+        conn.on('close',function(){delete S.conns[conn.peer];removeRemote(conn.peer);});
+        setTimeout(function(){
+          if(!S.peer) return;
+          var call=S.peer.call(conn.peer,stream,{metadata:{name:S.myName||'Trainer'}});
+          call.on('stream',function(rs){
+            S.calls[conn.peer]=call;
+            addRemote(conn.peer,name,rs);
+            S.status='';setStatus('');
           });
-          call.on("close",()=>{
-            delete calls.current[conn.peer];
-            setRemotes(r=>{const n={...r};delete n[conn.peer];return n;});
-          });
+          call.on('close',function(){delete S.calls[conn.peer];removeRemote(conn.peer);});
         },700);
       });
 
-      /* Accept video calls */
-      peer.on("call", call=>{
+      peer.on('call',function(call){
         call.answer(stream);
-        const name = call.metadata?.name||(asHost?"Participante":"Trainer");
-        call.on("stream",s=>{
-          calls.current[call.peer]=call;
-          setRemotes(r=>({...r,[call.peer]:{name,stream:s}}));
-          setStatus("");
+        var name=call.metadata&&call.metadata.name?call.metadata.name:(asHost?'Participante':'Trainer');
+        call.on('stream',function(rs){
+          S.calls[call.peer]=call;
+          addRemote(call.peer,name,rs);
+          S.status='';setStatus('');
         });
-        call.on("close",()=>{
-          delete calls.current[call.peer];
-          setRemotes(r=>{const n={...r};delete n[call.peer];return n;});
-        });
+        call.on('close',function(){delete S.calls[call.peer];removeRemote(call.peer);});
       });
 
-      peer.on("error",err=>{
-        const map = {
-          "unavailable-id":  "❌ Sala já em uso. Escolhe outro nome.",
-          "peer-unavailable":"❌ Sala não encontrada. Verifica o nome.",
-        };
-        setErrMsg(map[err.type]||`❌ ${err.message}`);
-        setStatus("");
+      peer.on('error',function(err){
+        var msgs={'unavailable-id':'❌ Sala já em uso. Tenta outro nome.',
+                  'peer-unavailable':'❌ Sala não encontrada.'};
+        S.errMsg=msgs[err.type]||'❌ '+err.message;
+        S.status='';
+        setErr(S.errMsg);setStatus('');
       });
-    } catch(e) {
-      setErrMsg(e.name==="NotAllowedError"
-        ? "❌ Permissão de câmara/microfone negada pelo browser."
-        : "❌ "+e.message);
-      setStatus("");
-      setPage("landing");
+    });
+  })
+  .catch(function(e){
+    S.errMsg=e.name==='NotAllowedError'?'❌ Câmara/microfone bloqueado pelo browser.':'❌ '+e.message;
+    S.page='landing';
+    render();
+  });
+}
+
+function addRemote(id,name,stream){
+  var vEl=document.createElement('video');
+  vEl.autoplay=true;vEl.playsInline=true;
+  vEl.style.cssText='width:100%;height:100%;object-fit:cover;';
+  vEl.srcObject=stream;
+  S.remotes[id]={name:name,stream:stream,videoEl:vEl};
+  rebuildGrid();
+}
+function removeRemote(id){
+  delete S.remotes[id];
+  rebuildGrid();
+}
+
+function leaveRoom(){
+  killTimer();
+  if(S.localStream) S.localStream.getTracks().forEach(function(t){t.stop();});
+  if(S.peer) S.peer.destroy();
+  S.peer=null;S.calls={};S.conns={};S.localStream=null;
+  S.remotes={};S.timerOn=false;S.panelOpen=false;
+  S.timer={phase:'idle',round:0,total:0,left:0};
+  S.page='landing';S.status='';S.errMsg='';
+  render();
+}
+
+/* ══════════════════════════════════
+   PHASE CONFIG
+══════════════════════════════════ */
+var PHASE={
+  idle:{color:'#2a3a50',label:'PRONTO',      bg:'rgba(20,35,55,0.6)'},
+  work:{color:'#00ff88',label:'💪 TRABALHO', bg:'rgba(0,255,136,0.1)'},
+  rest:{color:'#ff3d5a',label:'😤 DESCANSO', bg:'rgba(255,61,90,0.1)'},
+  done:{color:'#ffd700',label:'🏆 COMPLETO!',bg:'rgba(255,215,0,0.1)'},
+};
+var PRESETS=[
+  {n:'Tabata',      w:20, r:10,rds:8 },
+  {n:'40/20',       w:40, r:20,rds:8 },
+  {n:'30/30',       w:30, r:30,rds:10},
+  {n:'Boxe 3′',     w:180,r:60,rds:6 },
+  {n:'AMRAP 5′',    w:300,r:60,rds:5 },
+  {n:'Sprint 15/45',w:15, r:45,rds:12},
+];
+
+/* ══════════════════════════════════
+   RENDER — LANDING
+══════════════════════════════════ */
+function renderLanding(){
+  var app=document.getElementById('app');
+  app.innerHTML='';
+  app.style.cssText='min-height:100vh;background:radial-gradient(ellipse 90% 70% at 40% 30%,#091828 0%,#030508 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;overflow-y:auto;';
+
+  // Logo
+  var logo=div('text-align:center;margin-bottom:44px;');
+  logo.innerHTML='<div style="font-size:56px;filter:drop-shadow(0 0 28px rgba(0,255,136,.6));line-height:1">⚡</div>'
+    +'<div style="color:#00ff88;font-weight:900;font-size:28px;letter-spacing:10px;margin-top:10px;text-shadow:0 0 50px rgba(0,255,136,.4)">PERFEKTUS</div>'
+    +'<div style="color:#0d1e2a;font-size:11px;letter-spacing:7px;margin-top:5px">TRAINING ROOM</div>'
+    +'<div style="color:#0a1520;font-size:11px;margin-top:12px;line-height:1.8;max-width:320px">Videochamada P2P · Timer HIIT Sincronizado<br>Sem subscrição · Sem limite de tempo</div>';
+  app.appendChild(logo);
+
+  // Card
+  var card=div('background:rgba(255,255,255,0.022);border:1px solid rgba(255,255,255,0.07);border-radius:26px;padding:36px 38px;width:100%;max-width:420px;box-shadow:0 30px 100px rgba(0,0,0,.8);');
+  app.appendChild(card);
+
+  // Room input
+  var rlabel=div('color:#0e1c28;font-size:10px;letter-spacing:2.5px;margin-bottom:7px');
+  rlabel.textContent='NOME DA SALA';card.appendChild(rlabel);
+  var roomInp=el('input','width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 16px;color:#fff;font-size:15px;margin-bottom:16px;display:block;',{type:'text',placeholder:'ex: joao-treino-online'});
+  roomInp.value=S.roomId;
+  roomInp.oninput=function(){S.roomId=this.value.toLowerCase().replace(/\s+/g,'-');updateShareLink();};
+  card.appendChild(roomInp);
+
+  // Name input
+  var nlabel=div('color:#0e1c28;font-size:10px;letter-spacing:2.5px;margin-bottom:7px');
+  nlabel.textContent='O TEU NOME';card.appendChild(nlabel);
+  var nameInp=el('input','width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 16px;color:#fff;font-size:15px;margin-bottom:4px;display:block;',{type:'text',placeholder:'ex: João'});
+  nameInp.value=S.myName;
+  nameInp.oninput=function(){S.myName=this.value;};
+  card.appendChild(nameInp);
+
+  // Error
+  if(S.errMsg){
+    var errDiv=div('background:rgba(255,40,70,0.09);border:1px solid rgba(255,40,70,0.18);border-radius:10px;padding:10px 14px;margin:14px 0;color:#ff8090;font-size:13px');
+    errDiv.textContent=S.errMsg;card.appendChild(errDiv);
+  }
+
+  // Trainer button
+  var trainerBtn=btn('⚡ ENTRAR COMO TRAINER','width:100%;padding:14px;margin-top:20px;background:#00ff88;color:#000;border-radius:14px;font-weight:900;font-size:14px;letter-spacing:1px;');
+  trainerBtn.onclick=function(){S.myName=nameInp.value;joinRoom(true);};
+  card.appendChild(trainerBtn);
+
+  var gap=div('height:8px');card.appendChild(gap);
+
+  // Participant button
+  var partBtn=btn('ENTRAR COMO PARTICIPANTE','width:100%;padding:13px;background:transparent;color:#00ff88;border:1px solid rgba(0,255,136,0.28);border-radius:14px;font-weight:600;font-size:13px;');
+  partBtn.onclick=function(){S.myName=nameInp.value;joinRoom(false);};
+  card.appendChild(partBtn);
+
+  // Share link box
+  var shareBox=div('margin-top:26px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.045);');
+  var shareLabel=div('color:#0d1a24;font-size:9px;letter-spacing:2.5px;margin-bottom:8px');
+  shareLabel.textContent='LINK PARA ENVIAR AOS CLIENTES';
+  shareBox.appendChild(shareLabel);
+  var linkRow=div('background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.11);border-radius:10px;padding:9px 12px;display:flex;align-items:center;gap:8px;');
+  var linkSpan=el('span','color:#0a6a45;font-size:11px;flex:1;word-break:break-all;line-height:1.5;');
+  linkSpan.id='share-link-text';
+  var shareUrl=getShareUrl(S.roomId);
+  linkSpan.textContent=shareUrl;
+  var copyBtn=btn('📋','background:rgba(0,255,136,0.15);border:none;color:#00ff88;border-radius:6px;padding:5px 10px;font-size:14px;flex-shrink:0;');
+  copyBtn.onclick=function(){navigator.clipboard.writeText(document.getElementById('share-link-text').textContent).catch(function(){});};
+  linkRow.appendChild(linkSpan);linkRow.appendChild(copyBtn);
+  shareBox.appendChild(linkRow);
+  card.appendChild(shareBox);
+
+  var footer=div('color:#06101a;font-size:10px;margin-top:28px;text-align:center;line-height:1.9');
+  footer.innerHTML='WebRTC peer-to-peer · Sem servidor central · iOS, Android, Mac, PC';
+  app.appendChild(footer);
+}
+
+function getShareUrl(roomId){
+  return location.origin+location.pathname+'?room='+encodeURIComponent(roomId||'');
+}
+function updateShareLink(){
+  var el=document.getElementById('share-link-text');
+  if(el) el.textContent=getShareUrl(S.roomId);
+}
+
+/* ══════════════════════════════════
+   RENDER — ROOM
+══════════════════════════════════ */
+function renderRoom(){
+  var app=document.getElementById('app');
+  app.innerHTML='';
+  app.style.cssText='position:fixed;inset:0;background:#03050a;display:flex;flex-direction:column;overflow:hidden;';
+
+  // TOP BAR
+  var bar=div('display:flex;align-items:center;gap:10px;padding:7px 16px;background:rgba(2,4,9,0.98);border-bottom:1px solid rgba(0,255,136,0.07);flex-shrink:0;z-index:20;');
+  bar.innerHTML='<span style="color:#00ff88;font-weight:900;font-size:17px;filter:drop-shadow(0 0 8px rgba(0,255,136,.6))">⚡</span>'
+    +'<span style="color:#00cc66;font-weight:800;font-size:11px;letter-spacing:4px">PERFEKTUS</span>'
+    +'<span style="color:#0c1a26;font-size:11px;margin:0 2px">|</span>'
+    +'<span style="color:#172535;font-size:11px">Sala: <b style="color:#1e3347">'+S.roomId+'</b></span>';
+  if(S.isHost){
+    var chip=el('span','background:rgba(0,255,136,0.1);color:#009955;font-size:9px;padding:2px 8px;border-radius:4px;letter-spacing:2px;font-weight:700');
+    chip.textContent='TRAINER';bar.appendChild(chip);
+  }
+  var statusEl=el('span','color:#0c1e2e;font-size:11px');
+  statusEl.id='room-status';statusEl.textContent=S.status?'· '+S.status:'';
+  bar.appendChild(statusEl);
+  var barRight=div('margin-left:auto;display:flex;gap:7px;align-items:center;');
+  var pCount=el('span','background:rgba(0,255,136,0.07);border:1px solid rgba(0,255,136,0.1);color:#007744;font-size:10px;padding:3px 10px;border-radius:6px;letter-spacing:1px;display:none;');
+  pCount.id='pcount';barRight.appendChild(pCount);
+  var linkBtn=btn('📋 Link','background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#2a3a4a;padding:4px 14px;border-radius:8px;font-size:11px;font-weight:700;');
+  linkBtn.onclick=function(){navigator.clipboard.writeText(getShareUrl(S.roomId)).catch(function(){});};
+  barRight.appendChild(linkBtn);
+  if(S.isHost){
+    var timerBtn=btn('⏱ HIIT Timer','background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#2a3a4a;padding:4px 14px;border-radius:8px;font-size:11px;font-weight:700;');
+    timerBtn.id='timer-toggle-btn';
+    timerBtn.onclick=function(){S.panelOpen=!S.panelOpen;renderPanel();toggleTimerBtn();};
+    barRight.appendChild(timerBtn);
+  }
+  bar.appendChild(barRight);
+  app.appendChild(bar);
+
+  // VIDEO GRID
+  var grid=div('flex:1;display:grid;gap:3px;padding:3px;background:#02040a;position:relative;overflow:hidden;');
+  grid.id='video-grid';
+  app.appendChild(grid);
+
+  // Local video tile
+  var localTile=div('position:relative;background:#080b18;border-radius:10px;overflow:hidden;min-height:80px;');
+  var localVid=el('video','width:100%;height:100%;object-fit:cover;transform:scaleX(-1);',{autoplay:true,muted:true,playsinline:true});
+  localVid.setAttribute('playsinline','');
+  localVid.id='local-video';
+  if(S.localStream) localVid.srcObject=S.localStream;
+  localTile.appendChild(localVid);
+  var localLabel=div('position:absolute;bottom:7px;left:7px;background:rgba(0,0,0,0.7);color:#6a7a8a;font-size:11px;padding:3px 9px;border-radius:6px;');
+  localLabel.textContent=S.myName||(S.isHost?'Tu (Trainer)':'Tu');
+  localTile.appendChild(localLabel);
+  grid.appendChild(localTile);
+
+  // Remote tiles
+  Object.keys(S.remotes).forEach(function(id){
+    var rem=S.remotes[id];
+    var tile=div('position:relative;background:#080b18;border-radius:10px;overflow:hidden;min-height:80px;');
+    tile.id='tile-'+id;
+    var v=rem.videoEl||document.createElement('video');
+    v.autoplay=true;v.playsInline=true;
+    v.setAttribute('playsinline','');
+    v.style.cssText='width:100%;height:100%;object-fit:cover;';
+    if(v.srcObject!==rem.stream) v.srcObject=rem.stream;
+    rem.videoEl=v;
+    tile.appendChild(v);
+    var lbl=div('position:absolute;bottom:7px;left:7px;background:rgba(0,0,0,0.7);color:#6a7a8a;font-size:11px;padding:3px 9px;border-radius:6px;');
+    lbl.textContent=rem.name;
+    tile.appendChild(lbl);
+    grid.appendChild(tile);
+  });
+
+  // Waiting placeholder
+  var waitEl=div('background:rgba(0,0,0,0.2);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;');
+  waitEl.id='wait-placeholder';
+  var spinEl=div('width:32px;height:32px;border:3px solid rgba(0,255,136,0.2);border-top-color:#00ff88;border-radius:50%;animation:spin .9s linear infinite;');
+  var waitTxt=div('color:#0e1c2e;font-size:14px;text-align:center;padding:0 24px;line-height:1.7;');
+  waitTxt.textContent=S.status||(S.isHost?'À espera de participantes…':'A ligar ao trainer…');
+  waitEl.appendChild(spinEl);waitEl.appendChild(waitTxt);
+  var errEl=div('color:#cc2244;font-size:12px;text-align:center;padding:0 24px;');
+  errEl.id='room-err';errEl.textContent=S.errMsg||'';
+  waitEl.appendChild(errEl);
+  grid.appendChild(waitEl);
+  waitEl.style.display=Object.keys(S.remotes).length?'none':'flex';
+
+  // TIMER OVERLAY
+  var overlay=div('position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;pointer-events:none;');
+  overlay.id='timer-overlay';
+  overlay.style.display=S.timerOn?'flex':'none';
+  var pi=PHASE[S.timer.phase]||PHASE.idle;
+  var box=div('backdrop-filter:blur(36px) saturate(200%);-webkit-backdrop-filter:blur(36px) saturate(200%);border:3px solid '+pi.color+';border-radius:34px;padding:38px 72px;text-align:center;min-width:290px;box-shadow:0 0 90px '+pi.color+'33,0 60px 120px rgba(0,0,0,.97);pointer-events:auto;animation:glow 2.4s ease-in-out infinite;background:'+pi.bg+';');
+  box.id='timer-box';
+  box.style.setProperty('--gc',pi.color+'44');
+  renderTimerContent(box,pi);
+  overlay.appendChild(box);
+  grid.appendChild(overlay);
+
+  updateGridCols();
+
+  // TIMER PANEL
+  var panel=div('position:fixed;bottom:76px;right:18px;z-index:300;background:rgba(2,5,13,0.99);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);border:1px solid rgba(0,255,136,0.18);border-radius:22px;padding:24px 26px;width:320px;box-shadow:0 24px 80px rgba(0,0,0,.95);');
+  panel.id='timer-panel';
+  panel.style.display='none';
+  buildPanel(panel);
+  app.appendChild(panel);
+  if(S.panelOpen) panel.style.display='block';
+
+  // BOTTOM BAR
+  var bottom=div('display:flex;align-items:center;justify-content:center;gap:10px;padding:10px 20px;background:rgba(2,4,9,0.98);border-top:1px solid rgba(255,255,255,0.03);flex-shrink:0;z-index:20;');
+  var micBtn=btn(S.micOn?'🎙️':'🔇','background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);color:#8a9aaa;padding:8px 16px;border-radius:50px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:14px;');
+  var micLbl=el('span','font-size:9px;color:#8a9aaa;');micLbl.textContent=S.micOn?'Mic':'Mudo';
+  micBtn.appendChild(micLbl);
+  micBtn.onclick=function(){
+    var t=S.localStream&&S.localStream.getAudioTracks()[0];
+    if(t){t.enabled=!t.enabled;S.micOn=t.enabled;
+      micBtn.childNodes[0].nodeValue=S.micOn?'🎙️':'🔇';
+      micLbl.textContent=S.micOn?'Mic':'Mudo';
     }
   };
-
-  /* ─── Leave ─── */
-  const leaveRoom = () => {
-    killTimer();
-    localStream.current?.getTracks().forEach(t=>t.stop());
-    peerInst.current?.destroy();
-    peerInst.current=null; calls.current={}; conns.current={};
-    setRemotes({}); setTimerOn(false);
-    setTimer({phase:"idle",round:0,total:0,left:0});
-    setPage("landing"); setStatus(""); setErrMsg("");
+  var camBtn=btn(S.camOn?'📷':'🚫','background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);color:#8a9aaa;padding:8px 16px;border-radius:50px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:14px;');
+  var camLbl=el('span','font-size:9px;color:#8a9aaa;');camLbl.textContent='Câmara';
+  camBtn.appendChild(camLbl);
+  camBtn.onclick=function(){
+    var t=S.localStream&&S.localStream.getVideoTracks()[0];
+    if(t){t.enabled=!t.enabled;S.camOn=t.enabled;
+      camBtn.childNodes[0].nodeValue=S.camOn?'📷':'🚫';
+      var lv=document.getElementById('local-video');
+      if(lv) lv.style.opacity=S.camOn?1:0.12;
+    }
   };
+  var leaveBtn=btn('📵 Sair','background:rgba(255,30,60,0.14);color:#ff3d5a;border:1px solid rgba(255,30,60,0.25);padding:10px 28px;border-radius:50px;font-weight:700;font-size:13px;');
+  leaveBtn.onclick=leaveRoom;
+  bottom.appendChild(micBtn);bottom.appendChild(camBtn);bottom.appendChild(leaveBtn);
+  app.appendChild(bottom);
+}
 
-  const toggleMic = ()=>{
-    const t=localStream.current?.getAudioTracks()[0];
-    if(t){t.enabled=!t.enabled;setMicOn(t.enabled);}
+function renderTimerContent(box,pi){
+  box.innerHTML='';
+  var phLabel=div('color:'+pi.color+';font-size:11px;font-weight:800;letter-spacing:5px;margin-bottom:8px');
+  phLabel.textContent=pi.label;box.appendChild(phLabel);
+
+  var bigNum=div('color:#fff;font-size:'+(S.timer.phase==='done'?74:104)+'px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-4px;text-shadow:0 0 70px '+pi.color+'80,0 4px 16px rgba(0,0,0,.95);');
+  bigNum.id='timer-big';
+  bigNum.textContent=S.timer.phase==='done'?'🏆':fmt(S.timer.left);
+  box.appendChild(bigNum);
+
+  if(S.timer.phase==='work'||S.timer.phase==='rest'){
+    var rndInfo=div('color:#1a2a3a;font-size:13px;margin-top:12px;letter-spacing:1px');
+    rndInfo.innerHTML='ROUND <b style="color:'+pi.color+';font-size:16px">'+S.timer.round+'</b> / '+S.timer.total;
+    box.appendChild(rndInfo);
+  }
+  if(S.timer.phase==='done'){
+    var doneLabel=div('color:#ffd700;font-size:20px;font-weight:800;margin-top:12px;letter-spacing:1px');
+    doneLabel.textContent='SESSÃO COMPLETA!';box.appendChild(doneLabel);
+    var closeBtn=btn('Fechar ✕','margin-top:22px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.28);color:#ffd700;border-radius:10px;padding:7px 24px;font-size:12px;font-weight:700;');
+    closeBtn.onclick=function(){S.timerOn=false;S.timer={phase:'idle',round:0,total:0,left:0};renderRoom();};
+    box.appendChild(closeBtn);
+  }
+
+  // Progress dots
+  if(S.timer.total>0&&S.timer.total<=20&&S.timer.phase!=='done'){
+    var dots=div('display:flex;flex-wrap:wrap;justify-content:center;gap:5px;margin-top:18px;max-width:250px;margin-left:auto;margin-right:auto;');
+    for(var i=0;i<S.timer.total;i++){
+      var dot=div('border-radius:50%;transition:all .35s ease;flex-shrink:0;');
+      var isCur=i===S.timer.round-1,isDone=i<S.timer.round-1;
+      dot.style.width=(isCur?11:7)+'px';dot.style.height=(isCur?11:7)+'px';
+      dot.style.background=isDone?'#1a3a28':isCur?pi.color:'rgba(255,255,255,0.07)';
+      dots.appendChild(dot);
+    }
+    box.appendChild(dots);
+  }
+}
+
+function updateTimerDisplay(){
+  var pi=PHASE[S.timer.phase]||PHASE.idle;
+  var bigEl=document.getElementById('timer-big');
+  if(bigEl) bigEl.textContent=S.timer.phase==='done'?'🏆':fmt(S.timer.left);
+  var box=document.getElementById('timer-box');
+  if(box&&(S.timer.phase==='idle'||S.timer.phase==='done')){
+    renderTimerContent(box,pi);
+    box.style.borderColor=pi.color;
+    box.style.background=pi.bg;
+    box.style.setProperty('--gc',pi.color+'44');
+  }
+  // Update round dots when round changes - re-render content
+  var overlay=document.getElementById('timer-overlay');
+  if(overlay) overlay.style.display=S.timerOn?'flex':'none';
+}
+
+function buildPanel(panel){
+  panel.innerHTML='';
+  // Header
+  var hdr=div('display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;');
+  var title=el('span','color:#00ff88;font-weight:900;font-size:13px;letter-spacing:3px;');
+  title.textContent='⚡ HIIT TIMER';
+  var closeX=btn('✕','background:none;border:none;color:#1a2a38;font-size:19px;line-height:1;');
+  closeX.onclick=function(){S.panelOpen=false;var p=document.getElementById('timer-panel');if(p)p.style.display='none';toggleTimerBtn();};
+  hdr.appendChild(title);hdr.appendChild(closeX);
+  panel.appendChild(hdr);
+
+  // Config rows
+  [{k:'work',label:'TRABALHO (s)',step:5,min:5,max:300},
+   {k:'rest',label:'DESCANSO (s)',step:5,min:5,max:300},
+   {k:'rounds',label:'ROUNDS',step:1,min:1,max:40}
+  ].forEach(function(row){
+    var wrap=div('margin-bottom:18px;');
+    var lbl=div('color:#1a2838;font-size:10px;letter-spacing:2px;margin-bottom:7px');
+    lbl.textContent=row.label;wrap.appendChild(lbl);
+    var row2=div('display:flex;align-items:center;gap:7px;');
+    var minus=btn('−','width:38px;height:38px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#3a4a5a;border-radius:9px;font-size:22px;display:flex;align-items:center;justify-content:center;');
+    var valEl=div('flex:1;text-align:center;color:#fff;font-size:34px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-1px;');
+    valEl.id='cfg-'+row.k;valEl.textContent=S.cfg[row.k];
+    var plus=btn('+','width:38px;height:38px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#3a4a5a;border-radius:9px;font-size:22px;display:flex;align-items:center;justify-content:center;');
+    (function(k,step,min,max,ve){
+      minus.onclick=function(){S.cfg[k]=Math.max(min,S.cfg[k]-step);ve.textContent=S.cfg[k];};
+      plus.onclick=function(){S.cfg[k]=Math.min(max,S.cfg[k]+step);ve.textContent=S.cfg[k];};
+    })(row.k,row.step,row.min,row.max,valEl);
+    row2.appendChild(minus);row2.appendChild(valEl);row2.appendChild(plus);
+    wrap.appendChild(row2);panel.appendChild(wrap);
+  });
+
+  // Presets
+  var preWrap=div('margin-bottom:20px;');
+  var preLbl=div('color:#0e1c28;font-size:10px;letter-spacing:2px;margin-bottom:10px');
+  preLbl.textContent='PRESETS';preWrap.appendChild(preLbl);
+  var preGrid=div('display:flex;flex-wrap:wrap;gap:6px;');
+  PRESETS.forEach(function(p){
+    var pb=btn(p.n,'background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.15);color:#009955;padding:4px 11px;border-radius:7px;font-size:11px;font-weight:600;');
+    pb.onclick=function(){
+      S.cfg={work:p.w,rest:p.r,rounds:p.rds};
+      ['work','rest','rounds'].forEach(function(k){var e=document.getElementById('cfg-'+k);if(e)e.textContent=S.cfg[k];});
+    };
+    preGrid.appendChild(pb);
+  });
+  preWrap.appendChild(preGrid);panel.appendChild(preWrap);
+
+  // Action buttons
+  var actions=div('display:flex;gap:7px;margin-bottom:14px;');
+  var startBtn=btn('▶ INICIAR','flex:1;background:#00ff88;color:#000;border:none;padding:13px 0;border-radius:13px;font-weight:900;font-size:14px;letter-spacing:1px;');
+  startBtn.onclick=function(){
+    var cmd={action:'start',work:S.cfg.work,rest:S.cfg.rest,rounds:S.cfg.rounds};
+    bcast(cmd);applyCmd(cmd);
+    // Re-render timer overlay
+    var overlay=document.getElementById('timer-overlay');
+    var box=document.getElementById('timer-box');
+    if(overlay){overlay.style.display='flex';}
+    if(box){var pi2=PHASE.work;box.style.borderColor=pi2.color;box.style.background=pi2.bg;renderTimerContent(box,pi2);}
   };
-  const toggleCam = ()=>{
-    const t=localStream.current?.getVideoTracks()[0];
-    if(t){t.enabled=!t.enabled;setCamOn(t.enabled);}
-  };
+  var pauseBtn=btn('⏸','background:rgba(255,61,90,0.12);color:#ff3d5a;border:1px solid rgba(255,61,90,0.2);padding:13px 15px;border-radius:13px;font-size:18px;');
+  pauseBtn.onclick=function(){var c={action:'stop'};bcast(c);applyCmd(c);};
+  var resetBtn=btn('↺','background:rgba(255,255,255,0.03);color:#1a2838;border:1px solid rgba(255,255,255,0.05);padding:13px 15px;border-radius:13px;font-size:16px;');
+  resetBtn.onclick=function(){var c={action:'reset'};bcast(c);applyCmd(c);};
+  actions.appendChild(startBtn);actions.appendChild(pauseBtn);actions.appendChild(resetBtn);
+  panel.appendChild(actions);
 
-  useEffect(()=>()=>{
-    killTimer();
-    localStream.current?.getTracks().forEach(t=>t.stop());
-    peerInst.current?.destroy();
-  },[killTimer]);
-
-  /* ─── Derived ─── */
-  const pi         = PHASE[timer.phase]||PHASE.idle;
-  const remoteList = Object.entries(remotes);
-  const total      = 1 + remoteList.length;
-  const cols       = total===1?1:total===2?2:total<=4?2:3;
-  const shareUrl   = `${location.origin}${location.pathname}?room=${encodeURIComponent(roomId)}`;
-
-  /* ══════════════════════════
-     LANDING PAGE
-  ══════════════════════════ */
-  if (page==="landing") return (
-    <div style={{
-      minHeight:"100vh",
-      background:"radial-gradient(ellipse 90% 70% at 40% 30%,#091828 0%,#030508 100%)",
-      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-      fontFamily:"'Segoe UI',system-ui,-apple-system,sans-serif",
-      color:"#fff",padding:24,
-    }}>
-      {/* Logo */}
-      <div style={{textAlign:"center",marginBottom:48}}>
-        <div style={{fontSize:58,filter:"drop-shadow(0 0 30px rgba(0,255,136,0.65))",lineHeight:1}}>⚡</div>
-        <div style={{
-          color:"#00ff88",fontWeight:900,fontSize:28,letterSpacing:10,marginTop:10,
-          textShadow:"0 0 50px rgba(0,255,136,0.4)",
-        }}>PERFEKTUS</div>
-        <div style={{color:"#0d1e2a",fontSize:11,letterSpacing:7,marginTop:5}}>TRAINING ROOM</div>
-        <div style={{color:"#0a1520",fontSize:11,marginTop:14,lineHeight:1.8,maxWidth:320}}>
-          Videochamada P2P · Timer HIIT Sincronizado<br/>
-          Sem subscrição · Sem limite de tempo · Cifrado E2E
-        </div>
-      </div>
-
-      {/* Card */}
-      <div style={{
-        background:"rgba(255,255,255,0.022)",
-        border:"1px solid rgba(255,255,255,0.07)",
-        borderRadius:26,padding:"38px 40px",
-        width:"100%",maxWidth:420,
-        backdropFilter:"blur(20px)",
-        boxShadow:"0 30px 100px rgba(0,0,0,0.8)",
-      }}>
-        <FLabel>NOME DA SALA</FLabel>
-        <FInput
-          value={roomId}
-          onChange={v=>setRoomId(v.toLowerCase().replace(/\s+/g,"-"))}
-          placeholder="ex: joao-treino-online"
-        />
-        <FLabel style={{marginTop:14}}>O TEU NOME</FLabel>
-        <FInput value={myName} onChange={setMyName} placeholder="ex: João"/>
-
-        {errMsg && <ErrBox>{errMsg}</ErrBox>}
-
-        <GBtn onClick={()=>roomId.trim()&&joinRoom(true)} disabled={!roomId.trim()}>
-          ⚡ ENTRAR COMO TRAINER
-        </GBtn>
-        <div style={{height:8}}/>
-        <OBtn onClick={()=>roomId.trim()&&joinRoom(false)} disabled={!roomId.trim()}>
-          ENTRAR COMO PARTICIPANTE
-        </OBtn>
-
-        {roomId.trim() && (
-          <div style={{marginTop:28,paddingTop:22,borderTop:"1px solid rgba(255,255,255,0.045)"}}>
-            <div style={{color:"#0d1a24",fontSize:9,letterSpacing:2.5,marginBottom:9}}>
-              LINK PARA ENVIAR AOS CLIENTES
-            </div>
-            <div style={{
-              background:"rgba(0,255,136,0.04)",border:"1px solid rgba(0,255,136,0.11)",
-              borderRadius:10,padding:"9px 12px",display:"flex",alignItems:"center",gap:8,
-            }}>
-              <span style={{color:"#0a6a45",fontSize:11,flex:1,wordBreak:"break-all",lineHeight:1.5}}>
-                {shareUrl}
-              </span>
-              <button
-                onClick={()=>{
-                  navigator.clipboard.writeText(shareUrl)
-                    .then(()=>{/* ok */}).catch(()=>{});
-                }}
-                style={{
-                  background:"rgba(0,255,136,0.15)",border:"none",color:"#00ff88",
-                  borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:14,flexShrink:0,
-                }}
-              >📋</button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style={{color:"#06101a",fontSize:10,marginTop:32,textAlign:"center",lineHeight:1.9}}>
-        WebRTC peer-to-peer · Sem servidor central · Funciona em iOS, Android, Mac, PC<br/>
-        Hospedar grátis em <b style={{color:"#0a1a28"}}>Netlify</b> · <b style={{color:"#0a1a28"}}>GitHub Pages</b> · <b style={{color:"#0a1a28"}}>Vercel</b>
-      </div>
-    </div>
-  );
-
-  /* ══════════════════════════
-     ROOM PAGE
-  ══════════════════════════ */
-  return (
-    <div style={{
-      position:"fixed",inset:0,background:"#03050a",
-      fontFamily:"'Segoe UI',system-ui,sans-serif",
-      display:"flex",flexDirection:"column",overflow:"hidden",
-    }}>
-      {/* ── TOP BAR ── */}
-      <div style={{
-        display:"flex",alignItems:"center",gap:10,padding:"7px 16px",
-        background:"rgba(2,4,9,0.98)",backdropFilter:"blur(18px)",
-        borderBottom:"1px solid rgba(0,255,136,0.07)",flexShrink:0,zIndex:20,
-      }}>
-        <span style={{color:"#00ff88",fontWeight:900,fontSize:17,filter:"drop-shadow(0 0 8px rgba(0,255,136,0.6))"}}>⚡</span>
-        <span style={{color:"#00cc66",fontWeight:800,fontSize:11,letterSpacing:4}}>PERFEKTUS</span>
-        <span style={{color:"#0c1a26",fontSize:11,margin:"0 2px"}}>|</span>
-        <span style={{color:"#172535",fontSize:11}}>
-          Sala: <b style={{color:"#1e3347"}}>{roomId}</b>
-        </span>
-        {isHost && (
-          <span style={{
-            background:"rgba(0,255,136,0.1)",color:"#009955",
-            fontSize:9,padding:"2px 8px",borderRadius:4,letterSpacing:2,fontWeight:700,
-          }}>TRAINER</span>
-        )}
-        {status && <span style={{color:"#0c1e2e",fontSize:11,marginLeft:4}}>· {status}</span>}
-
-        <div style={{marginLeft:"auto",display:"flex",gap:7,alignItems:"center"}}>
-          {/* Participant count */}
-          {remoteList.length>0 && (
-            <span style={{
-              background:"rgba(0,255,136,0.07)",border:"1px solid rgba(0,255,136,0.1)",
-              color:"#007744",fontSize:10,padding:"3px 10px",borderRadius:6,letterSpacing:1,
-            }}>
-              👥 {remoteList.length}
-            </span>
-          )}
-          <TBtn onClick={()=>navigator.clipboard.writeText(shareUrl).catch(()=>{})}>
-            📋 Link
-          </TBtn>
-          {isHost && (
-            <TBtn active={panelOpen} onClick={()=>setPanelOpen(p=>!p)}>
-              ⏱ HIIT Timer
-            </TBtn>
-          )}
-        </div>
-      </div>
-
-      {/* ── VIDEO GRID ── */}
-      <div style={{
-        flex:1,display:"grid",
-        gridTemplateColumns:`repeat(${cols},1fr)`,
-        gap:3,padding:3,
-        background:"#02040a",position:"relative",overflow:"hidden",
-      }}>
-        {/* Local */}
-        <VTile label={myName||(isHost?"Tu (Trainer)":"Tu (Participante)")}>
-          <video ref={localRef} autoPlay muted playsInline style={{
-            width:"100%",height:"100%",objectFit:"cover",
-            transform:"scaleX(-1)",opacity:camOn?1:0.12,
-          }}/>
-          {!camOn && <NoCam/>}
-        </VTile>
-
-        {/* Remotes */}
-        {remoteList.map(([id,{name}])=>(
-          <VTile key={id} label={name}>
-            <video
-              ref={el=>{
-                if(el){
-                  remoteRefs.current[id]=el;
-                  if(remotes[id]?.stream && el.srcObject!==remotes[id].stream)
-                    el.srcObject=remotes[id].stream;
-                }
-              }}
-              autoPlay playsInline
-              style={{width:"100%",height:"100%",objectFit:"cover"}}
-            />
-          </VTile>
-        ))}
-
-        {/* Waiting placeholder */}
-        {remoteList.length===0 && (
-          <div style={{
-            background:"rgba(0,0,0,0.2)",borderRadius:10,
-            display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,
-          }}>
-            {status ? (
-              <>
-                <div style={{width:32,height:32,border:"3px solid rgba(0,255,136,0.2)",borderTopColor:"#00ff88",borderRadius:"50%",animation:"spin 0.9s linear infinite"}}/>
-                <div style={{color:"#0e1c2e",fontSize:14}}>{status}</div>
-              </>
-            ) : (
-              <>
-                <div style={{fontSize:44,opacity:0.3}}>👥</div>
-                <div style={{color:"#0e1c2e",fontSize:14,textAlign:"center",padding:"0 24px",lineHeight:1.7}}>
-                  {isHost ? "À espera de participantes…\nPartilha o link acima." : "A ligar ao trainer…"}
-                </div>
-              </>
-            )}
-            {errMsg && <div style={{color:"#cc2244",fontSize:12,textAlign:"center",padding:"0 24px"}}>{errMsg}</div>}
-          </div>
-        )}
-
-        {/* ── TIMER OVERLAY ── */}
-        {timerOn && (
-          <div style={{
-            position:"absolute",inset:0,zIndex:50,
-            display:"flex",alignItems:"center",justifyContent:"center",
-            pointerEvents:"none",
-          }}>
-            <div style={{
-              background:pi.bg,
-              backdropFilter:"blur(36px) saturate(200%)",
-              WebkitBackdropFilter:"blur(36px) saturate(200%)",
-              border:`3px solid ${pi.color}`,
-              borderRadius:34,padding:"38px 72px",
-              textAlign:"center",minWidth:290,
-              boxShadow:`0 0 90px ${pi.color}33, 0 60px 120px rgba(0,0,0,0.97)`,
-              pointerEvents:"auto",
-              animation:timer.phase!=="done"?"glowPulse 2.4s ease-in-out infinite":"none",
-            }}>
-              {/* Phase label */}
-              <div style={{color:pi.color,fontSize:11,fontWeight:800,letterSpacing:5,marginBottom:8}}>
-                {pi.label}
-              </div>
-
-              {/* Big number */}
-              <div style={{
-                color:"#fff",
-                fontSize:timer.phase==="done"?74:104,
-                fontWeight:900,lineHeight:1,
-                fontVariantNumeric:"tabular-nums",
-                letterSpacing:-4,
-                textShadow:`0 0 70px ${pi.color}80, 0 4px 16px rgba(0,0,0,0.95)`,
-              }}>
-                {timer.phase==="done" ? "🏆" : fmt(timer.left)}
-              </div>
-
-              {/* Round info */}
-              {(timer.phase==="work"||timer.phase==="rest") && (
-                <div style={{color:"#1a2a3a",fontSize:13,marginTop:12,letterSpacing:1}}>
-                  ROUND&nbsp;<b style={{color:pi.color,fontSize:16}}>{timer.round}</b>&nbsp;/&nbsp;{timer.total}
-                </div>
-              )}
-
-              {timer.phase==="done" && (
-                <div style={{color:"#ffd700",fontSize:20,fontWeight:800,marginTop:12,letterSpacing:1}}>
-                  SESSÃO COMPLETA!
-                </div>
-              )}
-
-              {/* Progress dots (max 20) */}
-              {timer.total>0 && timer.total<=20 && timer.phase!=="done" && (
-                <div style={{
-                  display:"flex",flexWrap:"wrap",justifyContent:"center",
-                  gap:5,marginTop:18,maxWidth:250,margin:"18px auto 0",
-                }}>
-                  {Array.from({length:timer.total},(_,i)=>(
-                    <div key={i} style={{
-                      width:i===timer.round-1?11:7,
-                      height:i===timer.round-1?11:7,
-                      borderRadius:"50%",
-                      background:i<timer.round-1?"#1a3a28"
-                        :i===timer.round-1?pi.color
-                        :"rgba(255,255,255,0.07)",
-                      transition:"all 0.35s ease",
-                      marginTop:i===timer.round-1?-2:0,
-                    }}/>
-                  ))}
-                </div>
-              )}
-
-              {/* Close when done */}
-              {timer.phase==="done" && (
-                <button
-                  onClick={()=>{setTimerOn(false);setTimer({phase:"idle",round:0,total:0,left:0});}}
-                  style={{
-                    marginTop:22,background:"rgba(255,215,0,0.12)",
-                    border:"1px solid rgba(255,215,0,0.28)",
-                    color:"#ffd700",borderRadius:10,padding:"7px 24px",
-                    cursor:"pointer",fontSize:12,fontWeight:700,
-                  }}
-                >Fechar ✕</button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── BOTTOM CONTROLS ── */}
-      <div style={{
-        display:"flex",alignItems:"center",justifyContent:"center",gap:10,
-        padding:"10px 20px",
-        background:"rgba(2,4,9,0.98)",backdropFilter:"blur(18px)",
-        borderTop:"1px solid rgba(255,255,255,0.03)",
-        flexShrink:0,zIndex:20,
-      }}>
-        <CBtn active={micOn} onClick={toggleMic}>
-          <span>{micOn?"🎙️":"🔇"}</span>
-          <span style={{fontSize:9}}>{micOn?"Mic":"Mudo"}</span>
-        </CBtn>
-        <CBtn active={camOn} onClick={toggleCam}>
-          <span>{camOn?"📷":"🚫"}</span>
-          <span style={{fontSize:9}}>Câmara</span>
-        </CBtn>
-        <button onClick={leaveRoom} style={{
-          background:"rgba(255,30,60,0.14)",color:"#ff3d5a",
-          border:"1px solid rgba(255,30,60,0.25)",
-          padding:"10px 28px",borderRadius:50,cursor:"pointer",
-          fontWeight:700,fontSize:13,letterSpacing:0.5,
-        }}>📵 Sair</button>
-      </div>
-
-      {/* ── HOST TIMER PANEL ── */}
-      {isHost && panelOpen && (
-        <div style={{
-          position:"fixed",bottom:76,right:18,zIndex:300,
-          background:"rgba(2,5,13,0.99)",backdropFilter:"blur(30px)",
-          WebkitBackdropFilter:"blur(30px)",
-          border:"1px solid rgba(0,255,136,0.18)",
-          borderRadius:22,padding:"24px 26px",width:320,
-          boxShadow:"0 24px 80px rgba(0,0,0,0.95),0 0 0 1px rgba(0,255,136,0.04)",
-        }}>
-          {/* Header */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
-            <span style={{color:"#00ff88",fontWeight:900,fontSize:13,letterSpacing:3}}>
-              ⚡ HIIT TIMER
-            </span>
-            <button onClick={()=>setPanelOpen(false)}
-              style={{background:"none",border:"none",color:"#1a2a38",cursor:"pointer",fontSize:19,lineHeight:1}}>
-              ✕
-            </button>
-          </div>
-
-          {/* Config rows */}
-          {[
-            {k:"work",   label:"TRABALHO (s)", step:5,  min:5,  max:300},
-            {k:"rest",   label:"DESCANSO (s)", step:5,  min:5,  max:300},
-            {k:"rounds", label:"ROUNDS",       step:1,  min:1,  max:40 },
-          ].map(({k,label,step,min,max})=>(
-            <div key={k} style={{marginBottom:18}}>
-              <div style={{color:"#1a2838",fontSize:10,letterSpacing:2,marginBottom:7}}>{label}</div>
-              <div style={{display:"flex",alignItems:"center",gap:7}}>
-                <NBtn onClick={()=>setCfg(p=>({...p,[k]:Math.max(min,p[k]-step)})}>−</NBtn>
-                <div style={{
-                  flex:1,textAlign:"center",color:"#fff",
-                  fontSize:34,fontWeight:900,fontVariantNumeric:"tabular-nums",letterSpacing:-1,
-                }}>
-                  {cfg[k]}
-                </div>
-                <NBtn onClick={()=>setCfg(p=>({...p,[k]:Math.min(max,p[k]+step)})}>+</NBtn>
-              </div>
-            </div>
-          ))}
-
-          {/* Presets */}
-          <div style={{marginBottom:20}}>
-            <div style={{color:"#0e1c28",fontSize:10,letterSpacing:2,marginBottom:10}}>PRESETS</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-              {PRESETS.map(p=>(
-                <button key={p.n}
-                  onClick={()=>setCfg({work:p.w,rest:p.r,rounds:p.rds})}
-                  style={{
-                    background:"rgba(0,255,136,0.06)",border:"1px solid rgba(0,255,136,0.15)",
-                    color:"#009955",padding:"4px 11px",borderRadius:7,
-                    cursor:"pointer",fontSize:11,fontWeight:600,
-                  }}
-                >{p.n}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          <div style={{display:"flex",gap:7,marginBottom:14}}>
-            <button
-              onClick={()=>{
-                const cmd={action:"start",work:cfg.work,rest:cfg.rest,rounds:cfg.rounds};
-                bcast(cmd); applyCmd(cmd);
-              }}
-              style={{
-                flex:1,background:"#00ff88",color:"#000",border:"none",
-                padding:"13px 0",borderRadius:13,fontWeight:900,
-                cursor:"pointer",fontSize:14,letterSpacing:1,
-              }}
-            >▶ INICIAR</button>
-            <button
-              onClick={()=>{const c={action:"stop"};bcast(c);applyCmd(c);}}
-              style={{
-                background:"rgba(255,61,90,0.12)",color:"#ff3d5a",
-                border:"1px solid rgba(255,61,90,0.2)",
-                padding:"13px 15px",borderRadius:13,cursor:"pointer",fontSize:18,
-              }}
-            >⏸</button>
-            <button
-              onClick={()=>{const c={action:"reset"};bcast(c);applyCmd(c);}}
-              style={{
-                background:"rgba(255,255,255,0.03)",color:"#1a2838",
-                border:"1px solid rgba(255,255,255,0.05)",
-                padding:"13px 15px",borderRadius:13,cursor:"pointer",fontSize:16,
-              }}
-            >↺</button>
-          </div>
-
-          {/* Participants count */}
-          <div style={{
-            color:"#0e1c28",fontSize:11,textAlign:"center",
-            padding:"8px 0",borderTop:"1px solid rgba(255,255,255,0.04)",
-          }}>
-            {remoteList.length===0
-              ? "— Aguarda a ligação dos clientes —"
-              : `${remoteList.length} cliente${remoteList.length>1?"s":""} ligado${remoteList.length>1?"s":""}`}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  // Participant count
+  var pcDiv=div('color:#0e1c28;font-size:11px;text-align:center;padding:8px 0;border-top:1px solid rgba(255,255,255,0.04);');
+  pcDiv.id='panel-pcount';
+  var n=Object.keys(S.remotes).length;
+  pcDiv.textContent=n===0?'— Aguarda a ligação dos clientes —':n+' cliente'+(n>1?'s':'')+' ligado'+(n>1?'s':'');
+  panel.appendChild(pcDiv);
 }
 
-/* ══════════════════════════════════════════
-   SUB-COMPONENTS
-══════════════════════════════════════════ */
-function VTile({label,children}) {
-  return (
-    <div style={{position:"relative",background:"#080b18",borderRadius:10,overflow:"hidden",minHeight:80}}>
-      {children}
-      <div style={{
-        position:"absolute",bottom:7,left:7,
-        background:"rgba(0,0,0,0.7)",backdropFilter:"blur(6px)",
-        color:"#6a7a8a",fontSize:11,padding:"3px 9px",borderRadius:6,
-      }}>{label}</div>
-    </div>
-  );
-}
-function NoCam() {
-  return (
-    <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{fontSize:38,opacity:0.18}}>📷</div>
-    </div>
-  );
-}
-function TBtn({children,onClick,active}) {
-  return (
-    <button onClick={onClick} style={{
-      background:active?"#00ff88":"rgba(255,255,255,0.04)",
-      border:`1px solid ${active?"#00ff88":"rgba(255,255,255,0.07)"}`,
-      color:active?"#000":"#2a3a4a",
-      padding:"4px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,
-    }}>{children}</button>
-  );
-}
-function CBtn({children,onClick,active}) {
-  return (
-    <button onClick={onClick} style={{
-      background:active?"rgba(255,255,255,0.05)":"rgba(255,40,70,0.12)",
-      border:`1px solid ${active?"rgba(255,255,255,0.08)":"rgba(255,40,70,0.22)"}`,
-      color:active?"#8a9aaa":"#ff3d5a",
-      padding:"8px 16px",borderRadius:50,cursor:"pointer",
-      display:"flex",flexDirection:"column",alignItems:"center",gap:2,fontSize:14,
-    }}>{children}</button>
-  );
-}
-function NBtn({children,onClick}) {
-  return (
-    <button onClick={onClick} style={{
-      width:38,height:38,background:"rgba(255,255,255,0.04)",
-      border:"1px solid rgba(255,255,255,0.07)",
-      color:"#3a4a5a",borderRadius:9,cursor:"pointer",fontSize:22,
-      display:"flex",alignItems:"center",justifyContent:"center",
-    }}>{children}</button>
-  );
-}
-function FLabel({children,style={}}) {
-  return (
-    <div style={{color:"#0e1c28",fontSize:10,letterSpacing:2.5,marginBottom:7,...style}}>
-      {children}
-    </div>
-  );
-}
-function FInput({value,onChange,placeholder}) {
-  return (
-    <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
-      style={{
-        width:"100%",background:"rgba(255,255,255,0.04)",
-        border:"1px solid rgba(255,255,255,0.07)",
-        borderRadius:12,padding:"12px 16px",color:"#fff",fontSize:15,
-        outline:"none",marginBottom:4,display:"block",
-      }}
-    />
-  );
-}
-function ErrBox({children}) {
-  return (
-    <div style={{
-      background:"rgba(255,40,70,0.09)",border:"1px solid rgba(255,40,70,0.18)",
-      borderRadius:10,padding:"10px 14px",margin:"14px 0",color:"#ff8090",fontSize:13,
-    }}>{children}</div>
-  );
-}
-function GBtn({children,onClick,disabled}) {
-  return (
-    <button onClick={onClick} disabled={disabled} style={{
-      width:"100%",padding:14,marginTop:16,
-      background:disabled?"rgba(0,40,20,0.16)":"#00ff88",
-      color:disabled?"#0a2015":"#000",
-      border:`1px solid ${disabled?"rgba(0,80,40,0.1)":"transparent"}`,
-      borderRadius:14,fontWeight:900,fontSize:14,
-      cursor:disabled?"not-allowed":"pointer",letterSpacing:1,
-    }}>{children}</button>
-  );
-}
-function OBtn({children,onClick,disabled}) {
-  return (
-    <button onClick={onClick} disabled={disabled} style={{
-      width:"100%",padding:13,
-      background:"transparent",
-      color:disabled?"#0a1810":"#00ff88",
-      border:`1px solid ${disabled?"rgba(0,70,35,0.1)":"rgba(0,255,136,0.28)"}`,
-      borderRadius:14,fontWeight:600,fontSize:13,
-      cursor:disabled?"not-allowed":"pointer",
-    }}>{children}</button>
-  );
+function rebuildGrid(){
+  // Rebuild only the grid children, preserving the container
+  var grid=document.getElementById('video-grid');
+  if(!grid){renderRoom();return;}
+
+  // Remove old remote tiles & waiting placeholder
+  var toRemove=[];
+  for(var i=0;i<grid.children.length;i++){
+    var c=grid.children[i];
+    if(c.id!=='local-video'&&c.id!=='timer-overlay'){
+      toRemove.push(c);
+    }
+  }
+  // Keep local video tile (first child)
+  var localTile=grid.children[0];
+
+  // Clear all except local tile and overlay
+  grid.innerHTML='';
+  grid.appendChild(localTile);
+
+  // Re-add remotes
+  Object.keys(S.remotes).forEach(function(id){
+    var rem=S.remotes[id];
+    var tile=div('position:relative;background:#080b18;border-radius:10px;overflow:hidden;min-height:80px;');
+    tile.id='tile-'+id;
+    var v=rem.videoEl||document.createElement('video');
+    v.autoplay=true;v.playsInline=true;
+    v.setAttribute('playsinline','');
+    v.style.cssText='width:100%;height:100%;object-fit:cover;';
+    if(v.srcObject!==rem.stream) v.srcObject=rem.stream;
+    rem.videoEl=v;
+    tile.appendChild(v);
+    var lbl=div('position:absolute;bottom:7px;left:7px;background:rgba(0,0,0,0.7);color:#6a7a8a;font-size:11px;padding:3px 9px;border-radius:6px;');
+    lbl.textContent=rem.name;
+    tile.appendChild(lbl);
+    grid.appendChild(tile);
+  });
+
+  // Waiting placeholder
+  var n=Object.keys(S.remotes).length;
+  if(n===0){
+    var waitEl=div('background:rgba(0,0,0,0.2);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;');
+    waitEl.id='wait-placeholder';
+    var waitTxt=div('color:#0e1c2e;font-size:14px;text-align:center;padding:0 24px;line-height:1.7;');
+    waitTxt.textContent=S.isHost?'À espera de participantes…':'A ligar ao trainer…';
+    waitEl.appendChild(waitTxt);
+    if(S.errMsg){var e=div('color:#cc2244;font-size:12px;');e.textContent=S.errMsg;waitEl.appendChild(e);}
+    grid.appendChild(waitEl);
+  }
+
+  // Timer overlay
+  var overlay=div('position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;pointer-events:none;');
+  overlay.id='timer-overlay';
+  overlay.style.display=S.timerOn?'flex':'none';
+  var pi=PHASE[S.timer.phase]||PHASE.idle;
+  var box=div('backdrop-filter:blur(36px) saturate(200%);-webkit-backdrop-filter:blur(36px) saturate(200%);border:3px solid '+pi.color+';border-radius:34px;padding:38px 72px;text-align:center;min-width:290px;pointer-events:auto;animation:glow 2.4s ease-in-out infinite;background:'+pi.bg+';');
+  box.id='timer-box';
+  box.style.setProperty('--gc',pi.color+'44');
+  renderTimerContent(box,pi);
+  overlay.appendChild(box);
+  grid.appendChild(overlay);
+
+  updateGridCols();
+  updatePcount();
 }
 
-/* ══════════════════════════════════════════
-   MOUNT
-══════════════════════════════════════════ */
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
+function updateGridCols(){
+  var grid=document.getElementById('video-grid');
+  if(!grid) return;
+  var n=1+Object.keys(S.remotes).length;
+  var cols=n===1?1:n<=2?2:n<=4?2:3;
+  grid.style.gridTemplateColumns='repeat('+cols+',1fr)';
+}
+function updatePcount(){
+  var n=Object.keys(S.remotes).length;
+  var pc=document.getElementById('pcount');
+  if(pc){pc.style.display=n?'inline-block':'none';pc.textContent='👥 '+n;}
+  var pp=document.getElementById('panel-pcount');
+  if(pp) pp.textContent=n===0?'— Aguarda a ligação dos clientes —':n+' cliente'+(n>1?'s':'')+' ligado'+(n>1?'s':'');
+}
+function setStatus(txt){
+  var el=document.getElementById('room-status');
+  if(el) el.textContent=txt?'· '+txt:'';
+}
+function setErr(txt){
+  var el=document.getElementById('room-err');
+  if(el) el.textContent=txt||'';
+}
+function renderPanel(){
+  var p=document.getElementById('timer-panel');
+  if(!p) return;
+  if(S.panelOpen){buildPanel(p);p.style.display='block';}
+  else p.style.display='none';
+}
+function toggleTimerBtn(){
+  var b=document.getElementById('timer-toggle-btn');
+  if(!b) return;
+  b.style.background=S.panelOpen?'#00ff88':'rgba(255,255,255,0.04)';
+  b.style.color=S.panelOpen?'#000':'#2a3a4a';
+  b.style.borderColor=S.panelOpen?'#00ff88':'rgba(255,255,255,0.07)';
+}
+
+/* ══════════════════════════════════
+   MAIN RENDER
+══════════════════════════════════ */
+function render(){
+  if(S.page==='landing') renderLanding();
+  else renderRoom();
+}
+
+// Read ?room= from URL
+var urlRoom=new URLSearchParams(location.search).get('room');
+if(urlRoom) S.roomId=urlRoom;
+
+// Init
+render();
 </script>
 </body>
 </html>

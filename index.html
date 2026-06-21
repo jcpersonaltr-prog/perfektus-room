@@ -15,7 +15,7 @@ input::placeholder{color:#1a2a38}
 @keyframes glow{0%,100%{box-shadow:0 0 60px var(--gc,rgba(0,255,136,.25)),0 40px 100px rgba(0,0,0,.9)}50%{box-shadow:0 0 130px var(--gc,rgba(0,255,136,.42)),0 40px 100px rgba(0,0,0,.9)}}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:rgba(0,255,136,.15);border-radius:2px}
-.vtile{position:relative;background:#080b18;border-radius:12px;overflow:hidden;min-height:0;}
+.vtile{position:relative;background:#080b18;border-radius:12px;overflow:hidden;min-height:0;width:100%;height:100%;}
 .vtile video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
 </style>
 </head>
@@ -54,10 +54,10 @@ var S={page:'landing',isHost:false,roomId:'',myName:'',status:'',statusType:'inf
 
 /* ══ GRID LAYOUT ══ */
 function gridLayout(n){
+  // Zoom-style: always prefer roughly square grid
   if(n===1)return{cols:1,rows:1};
   if(n===2)return{cols:2,rows:1};
-  if(n===3)return{cols:3,rows:1};
-  if(n===4)return{cols:2,rows:2};
+  if(n<=4)return{cols:2,rows:2};   // 3 or 4 → 2×2
   if(n<=6)return{cols:3,rows:2};
   if(n<=9)return{cols:3,rows:3};
   return{cols:4,rows:Math.ceil(n/4)};
@@ -68,6 +68,14 @@ function applyGrid(){
   var lay=gridLayout(n);
   grid.style.gridTemplateColumns='repeat('+lay.cols+',1fr)';
   grid.style.gridTemplateRows='repeat('+lay.rows+',1fr)';
+  grid.style.alignItems='stretch';
+  grid.style.justifyItems='stretch';
+  // Force tiles to fill their cells
+  grid.querySelectorAll('.vtile').forEach(function(t){
+    t.style.width='100%';
+    t.style.height='100%';
+    t.style.minHeight='0';
+  });
 }
 
 /* ══ TIMER ══ */
@@ -112,7 +120,22 @@ function joinRoom(asHost){
   var code=toCode(S.roomId);
   if(!code){setStatus('Nome de sala invalido — usa letras e numeros.','err');return;}
   S.isHost=asHost;S.page='room';setStatus('A iniciar camera...','info');render();
-  navigator.mediaDevices.getUserMedia({video:true,audio:true}).then(function(stream){
+  // Try progressively simpler constraints if device rejects
+  function tryGetMedia(constraints, fallbacks, onSuccess, onFail){
+    navigator.mediaDevices.getUserMedia(constraints).then(onSuccess).catch(function(e){
+      if(fallbacks.length>0){ tryGetMedia(fallbacks[0], fallbacks.slice(1), onSuccess, onFail); }
+      else { onFail(e); }
+    });
+  }
+  tryGetMedia(
+    {video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},audio:true},
+    [
+      {video:{facingMode:'user'},audio:true},
+      {video:true,audio:true},
+      {video:true,audio:false},
+      {video:false,audio:true}
+    ],
+    function(stream){
     S.localStream=stream;
     var lv=document.getElementById('local-video');if(lv)lv.srcObject=stream;
     setStatus('A ligar...','info');
@@ -251,7 +274,7 @@ function renderRoom(){
   }
   bar.appendChild(br);app.appendChild(bar);
   // GRID
-  var grid=div('flex:1;display:grid;gap:4px;padding:4px;background:#010308;position:relative;overflow:hidden;');
+  var grid=div('flex:1;display:grid;gap:4px;padding:4px;background:#010308;position:relative;overflow:hidden;align-items:stretch;justify-items:stretch;');
   grid.id='video-grid';grid.style.gridTemplateColumns='1fr';grid.style.gridTemplateRows='1fr';
   app.appendChild(grid);
   // Local tile

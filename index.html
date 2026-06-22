@@ -257,12 +257,13 @@ function renderTimerContent(){
   var bn=div('color:#fff;font-size:'+(S.timer.phase==='done'?'74':'104')+'px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-4px;text-shadow:0 0 70px '+pi.c+'80,0 4px 16px rgba(0,0,0,.95);');
   bn.id='t-big';bn.textContent=S.timer.phase==='done'?'🏆':fmt(S.timer.left);box.appendChild(bn);
   if(S.timer.phase==='work'||S.timer.phase==='rest'){
-    var ri=div('color:#1a2a3a;font-size:13px;margin-top:12px;letter-spacing:1px');
-    ri.innerHTML='ROUND <b style="color:'+pi.c+';font-size:16px">'+S.timer.round+'</b> / '+S.timer.total;
+    var ri=div('font-size:13px;margin-top:12px;letter-spacing:2px;color:'+pi.c+';font-weight:700;opacity:0.7;');
+    ri.innerHTML='ROUND <b style="color:'+pi.c+';font-size:16px;opacity:1">'+S.timer.round+'</b> / '+S.timer.total;
     box.appendChild(ri);
     var remaining=S.timer.total-S.timer.round;
     if(remaining>0){
-      var rr=div('color:#0e1e2e;font-size:11px;margin-top:6px;letter-spacing:1.5px;');
+      var rr=div('font-size:11px;margin-top:6px;letter-spacing:2px;font-weight:600;');
+      rr.style.color=pi.c;rr.style.opacity='0.65';
       rr.textContent=remaining+' ronda'+(remaining>1?'s':'')+' restante'+(remaining>1?'s':'');
       box.appendChild(rr);
     }

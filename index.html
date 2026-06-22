@@ -50,7 +50,8 @@ function loadPeer(cb){
 var S={page:'landing',isHost:false,roomId:'',myName:'',status:'',statusType:'info',
   remotes:{},cfg:{work:40,rest:20,rounds:8},
   timer:{phase:'idle',round:0,total:0,left:0},timerOn:false,panelOpen:false,
-  peer:null,calls:{},conns:{},localStream:null,timerIv:null,ts:{}};
+  peer:null,calls:{},conns:{},localStream:null,timerIv:null,ts:{},
+  sessLeft:0,sessIv:null};
 
 /* ══ GRID LAYOUT ══ */
 function gridLayout(n){
@@ -79,16 +80,28 @@ function applyGrid(){
 }
 
 /* ══ TIMER ══ */
-function killTimer(){clearInterval(S.timerIv);}
+function killTimer(){clearInterval(S.timerIv);clearInterval(S.sessIv);}
 function applyCmd(cmd){
-  if(cmd.action==='stop'){killTimer();S.timerOn=false;S.timer.phase='idle';S.timer.left=0;updateOverlay();return;}
-  if(cmd.action==='reset'){killTimer();S.timerOn=false;S.timer={phase:'idle',round:0,total:0,left:0};updateOverlay();return;}
+  if(cmd.action==='stop'){killTimer();S.timerOn=false;S.timer.phase='idle';S.timer.left=0;S.sessLeft=0;updateSessTimer();updateOverlay();return;}
+  if(cmd.action==='reset'){killTimer();S.timerOn=false;S.timer={phase:'idle',round:0,total:0,left:0};S.sessLeft=0;updateSessTimer();updateOverlay();return;}
   if(cmd.action==='start'){
     killTimer();
     var w=cmd.work,r=cmd.rest,rds=cmd.rounds;
     S.ts={phase:'work',round:1,work:w,rest:r,total:rds,left:w};
     S.timerOn=true;S.timer={phase:'work',round:1,total:rds,left:w};
-    showOverlay();beepTone(880,.3,.7);
+    showOverlay();
+    // Whistle at START of first work round
+    playSound('apito');
+    // Auto-close panel
+    if(S.isHost){S.panelOpen=false;var pp=document.getElementById('tp');if(pp)pp.style.display='none';var ttb=document.getElementById('ttb');if(ttb){ttb.style.background='rgba(255,255,255,0.04)';ttb.style.color='#2a3a4a';}}
+    // Session total countdown
+    clearInterval(S.sessIv);
+    S.sessLeft=(w+r)*rds;
+    updateSessTimer();
+    S.sessIv=setInterval(function(){
+      if(S.sessLeft>0){S.sessLeft--;updateSessTimer();}
+      else{clearInterval(S.sessIv);updateSessTimer();}
+    },1000);
     S.timerIv=setInterval(function(){
       var ts=S.ts;ts.left-=1;
       // Last 3s of WORK: beep each second
@@ -99,7 +112,7 @@ function applyCmd(cmd){
           if(ts.round>=ts.total){clearInterval(S.timerIv);ts.phase='done';S.timer={phase:'done',round:ts.round,total:ts.total,left:0};S.timerOn=true;showOverlay();fanfare();return;}
           ts.phase='rest';ts.left=ts.rest;S.timer={phase:'rest',round:ts.round,total:ts.total,left:ts.rest};
         } else {
-          ts.round++;ts.phase='work';ts.left=ts.work;S.timer={phase:'work',round:ts.round,total:ts.total,left:ts.work};beepTone(880,.3,.7);
+          ts.round++;ts.phase='work';ts.left=ts.work;S.timer={phase:'work',round:ts.round,total:ts.total,left:ts.work};playSound('apito');
         }
         showOverlay();
       } else {
@@ -110,6 +123,17 @@ function applyCmd(cmd){
   }
 }
 function bcast(cmd){Object.values(S.conns).forEach(function(c){try{c.send(cmd);}catch(e){}});}
+
+function updateSessTimer(){
+  var el=document.getElementById('sess-timer');
+  if(!el)return;
+  if(S.sessLeft<=0){el.style.display='none';return;}
+  el.style.display='flex';
+  var s=S.sessLeft;
+  var h=Math.floor(s/3600);s=s%3600;
+  var m=Math.floor(s/60);var sec=s%60;
+  el.textContent=(h>0?h+':':'')+(m<10&&h>0?'0':'')+m+':'+(sec<10?'0':'')+sec;
+}
 
 var PH={idle:{c:'#2a3a50',l:'PRONTO',bg:'rgba(20,35,55,0.6)'},work:{c:'#00ff88',l:'TRABALHO',bg:'rgba(0,255,136,0.1)'},rest:{c:'#ff3d5a',l:'DESCANSO',bg:'rgba(255,61,90,0.1)'},done:{c:'#ffd700',l:'COMPLETO!',bg:'rgba(255,215,0,0.1)'}};
 var PRESETS=[{n:'Tabata',w:20,r:10,rds:8},{n:'40/20',w:40,r:20,rds:8},{n:'30/30',w:30,r:30,rds:10},{n:'Boxe 3\'',w:180,r:60,rds:6},{n:'AMRAP 5\'',w:300,r:60,rds:5},{n:'Sprint 15/45',w:15,r:45,rds:12}];
@@ -206,7 +230,17 @@ function renderTimerContent(){
   pl.textContent=(phase_emojis[S.timer.phase]||'')+pi.l;box.appendChild(pl);
   var bn=div('color:#fff;font-size:'+(S.timer.phase==='done'?'74':'104')+'px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-4px;text-shadow:0 0 70px '+pi.c+'80,0 4px 16px rgba(0,0,0,.95);');
   bn.id='t-big';bn.textContent=S.timer.phase==='done'?'🏆':fmt(S.timer.left);box.appendChild(bn);
-  if(S.timer.phase==='work'||S.timer.phase==='rest'){var ri=div('color:#1a2a3a;font-size:13px;margin-top:12px;letter-spacing:1px');ri.innerHTML='ROUND <b style="color:'+pi.c+';font-size:16px">'+S.timer.round+'</b> / '+S.timer.total;box.appendChild(ri);}
+  if(S.timer.phase==='work'||S.timer.phase==='rest'){
+    var ri=div('color:#1a2a3a;font-size:13px;margin-top:12px;letter-spacing:1px');
+    ri.innerHTML='ROUND <b style="color:'+pi.c+';font-size:16px">'+S.timer.round+'</b> / '+S.timer.total;
+    box.appendChild(ri);
+    var remaining=S.timer.total-S.timer.round;
+    if(remaining>0){
+      var rr=div('color:#0e1e2e;font-size:11px;margin-top:6px;letter-spacing:1.5px;');
+      rr.textContent=remaining+' ronda'+(remaining>1?'s':'')+' restante'+(remaining>1?'s':'');
+      box.appendChild(rr);
+    }
+  }
   if(S.timer.phase==='done'){
     var dl=div('color:#ffd700;font-size:20px;font-weight:800;margin-top:12px;');dl.textContent='SESSAO COMPLETA!';box.appendChild(dl);
     var cb=btn('Fechar x','margin-top:20px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.28);color:#ffd700;border-radius:10px;padding:7px 24px;font-size:12px;font-weight:700;');
@@ -261,6 +295,8 @@ function renderRoom(){
   bar.innerHTML='<span style="color:#00ff88;font-weight:900;font-size:17px">&#9889;</span><span style="color:#00cc66;font-weight:800;font-size:11px;letter-spacing:4px">PERFEKTUS</span><span style="color:#0c1a26;font-size:10px;margin:0 2px">|</span><span style="color:#172535;font-size:10px">'+S.roomId+'</span>';
   if(S.isHost){var chip=el('span','background:rgba(0,255,136,0.1);color:#009955;font-size:9px;padding:2px 8px;border-radius:4px;letter-spacing:2px;font-weight:700');chip.textContent='TRAINER';bar.appendChild(chip);}
   var se=el('span','font-size:10px;margin-left:2px;color:#2a4a6a;');se.id='room-status';se.textContent=S.status;bar.appendChild(se);
+  var sessEl=el('span','display:none;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);color:#00cc66;font-size:12px;font-weight:800;padding:3px 10px;border-radius:8px;margin-left:6px;font-variant-numeric:tabular-nums;letter-spacing:1px;min-width:54px;text-align:center;');
+  sessEl.id='sess-timer';bar.appendChild(sessEl);
   var br=div('margin-left:auto;display:flex;gap:6px;align-items:center;');
   var pc=el('span','background:rgba(0,255,136,0.07);border:1px solid rgba(0,255,136,0.1);color:#007744;font-size:10px;padding:3px 8px;border-radius:6px;display:none;');pc.id='pcount';br.appendChild(pc);
   var lb=btn('&#128203;','background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#2a3a4a;padding:4px 12px;border-radius:8px;font-size:11px;font-weight:700;');

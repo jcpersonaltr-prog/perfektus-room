@@ -51,7 +51,7 @@ var S={page:'landing',isHost:false,roomId:'',myName:'',status:'',statusType:'inf
   remotes:{},cfg:{work:40,rest:20,rounds:8},
   timer:{phase:'idle',round:0,total:0,left:0},timerOn:false,panelOpen:false,
   peer:null,calls:{},conns:{},localStream:null,timerIv:null,ts:{},
-  sessLeft:0,sessIv:null};
+  sess:{dur:3600,left:3600,running:false,iv:null}};
 
 /* ══ GRID LAYOUT ══ */
 function gridLayout(n){
@@ -80,10 +80,10 @@ function applyGrid(){
 }
 
 /* ══ TIMER ══ */
-function killTimer(){clearInterval(S.timerIv);clearInterval(S.sessIv);}
+function killTimer(){clearInterval(S.timerIv);}
 function applyCmd(cmd){
-  if(cmd.action==='stop'){killTimer();S.timerOn=false;S.timer.phase='idle';S.timer.left=0;S.sessLeft=0;updateSessTimer();updateOverlay();return;}
-  if(cmd.action==='reset'){killTimer();S.timerOn=false;S.timer={phase:'idle',round:0,total:0,left:0};S.sessLeft=0;updateSessTimer();updateOverlay();return;}
+  if(cmd.action==='stop'){killTimer();S.timerOn=false;S.timer.phase='idle';S.timer.left=0;updateOverlay();return;}
+  if(cmd.action==='reset'){killTimer();S.timerOn=false;S.timer={phase:'idle',round:0,total:0,left:0};updateOverlay();return;}
   if(cmd.action==='start'){
     killTimer();
     var w=cmd.work,r=cmd.rest,rds=cmd.rounds;
@@ -94,14 +94,7 @@ function applyCmd(cmd){
     playSound('apito');
     // Auto-close panel
     if(S.isHost){S.panelOpen=false;var pp=document.getElementById('tp');if(pp)pp.style.display='none';var ttb=document.getElementById('ttb');if(ttb){ttb.style.background='rgba(255,255,255,0.04)';ttb.style.color='#2a3a4a';}}
-    // Session total countdown
-    clearInterval(S.sessIv);
-    S.sessLeft=(w+r)*rds;
-    updateSessTimer();
-    S.sessIv=setInterval(function(){
-      if(S.sessLeft>0){S.sessLeft--;updateSessTimer();}
-      else{clearInterval(S.sessIv);updateSessTimer();}
-    },1000);
+
     S.timerIv=setInterval(function(){
       var ts=S.ts;ts.left-=1;
       // Last 3s of WORK: beep each second
@@ -124,15 +117,43 @@ function applyCmd(cmd){
 }
 function bcast(cmd){Object.values(S.conns).forEach(function(c){try{c.send(cmd);}catch(e){}});}
 
-function updateSessTimer(){
-  var el=document.getElementById('sess-timer');
+/* ══ SESSION TIMER (trainer only) ══ */
+function fmtSess(s){var h=Math.floor(s/3600);s=s%3600;var m=Math.floor(s/60);var sec=s%60;return(h>0?(h<10?'0':'')+h+':':'')+(m<10?'0':'')+m+':'+(sec<10?'0':'')+sec;}
+function updateSessDisplay(){
+  var el=document.getElementById('sess-display');
   if(!el)return;
-  if(S.sessLeft<=0){el.style.display='none';return;}
-  el.style.display='flex';
-  var s=S.sessLeft;
-  var h=Math.floor(s/3600);s=s%3600;
-  var m=Math.floor(s/60);var sec=s%60;
-  el.textContent=(h>0?h+':':'')+(m<10&&h>0?'0':'')+m+':'+(sec<10?'0':'')+sec;
+  el.textContent=fmtSess(S.sess.left);
+  el.style.color=S.sess.running?(S.sess.left<=60?'#ff6060':'#00ff88'):'#4a6a7a';
+}
+function sessStart(){
+  if(S.sess.running)return;
+  if(S.sess.left<=0)sesReset();
+  S.sess.running=true;
+  updateSessDisplay();
+  var startBtn=document.getElementById('sess-start');
+  var pauseBtn=document.getElementById('sess-pause');
+  if(startBtn)startBtn.style.display='none';
+  if(pauseBtn)pauseBtn.style.display='inline-block';
+  S.sess.iv=setInterval(function(){
+    if(S.sess.left>0){S.sess.left--;updateSessDisplay();}
+    else{sessPause();var el=document.getElementById('sess-display');if(el)el.style.color='#ff6060';}
+  },1000);
+}
+function sessPause(){
+  clearInterval(S.sess.iv);S.sess.running=false;
+  var startBtn=document.getElementById('sess-start');
+  var pauseBtn=document.getElementById('sess-pause');
+  if(startBtn)startBtn.style.display='inline-block';
+  if(pauseBtn)pauseBtn.style.display='none';
+  updateSessDisplay();
+}
+function sessReset(){
+  sessPause();S.sess.left=S.sess.dur;updateSessDisplay();
+}
+function sessAdjust(delta){
+  if(S.sess.running)return;
+  S.sess.dur=Math.max(300,Math.min(10800,S.sess.dur+delta));
+  S.sess.left=S.sess.dur;updateSessDisplay();
 }
 
 var PH={idle:{c:'#2a3a50',l:'PRONTO',bg:'rgba(20,35,55,0.6)'},work:{c:'#00ff88',l:'TRABALHO',bg:'rgba(0,255,136,0.1)'},rest:{c:'#ff3d5a',l:'DESCANSO',bg:'rgba(255,61,90,0.1)'},done:{c:'#ffd700',l:'COMPLETO!',bg:'rgba(255,215,0,0.1)'}};
@@ -295,8 +316,7 @@ function renderRoom(){
   bar.innerHTML='<span style="color:#00ff88;font-weight:900;font-size:17px">&#9889;</span><span style="color:#00cc66;font-weight:800;font-size:11px;letter-spacing:4px">PERFEKTUS</span><span style="color:#0c1a26;font-size:10px;margin:0 2px">|</span><span style="color:#172535;font-size:10px">'+S.roomId+'</span>';
   if(S.isHost){var chip=el('span','background:rgba(0,255,136,0.1);color:#009955;font-size:9px;padding:2px 8px;border-radius:4px;letter-spacing:2px;font-weight:700');chip.textContent='TRAINER';bar.appendChild(chip);}
   var se=el('span','font-size:10px;margin-left:2px;color:#2a4a6a;');se.id='room-status';se.textContent=S.status;bar.appendChild(se);
-  var sessEl=el('span','display:none;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);color:#00cc66;font-size:12px;font-weight:800;padding:3px 10px;border-radius:8px;margin-left:6px;font-variant-numeric:tabular-nums;letter-spacing:1px;min-width:54px;text-align:center;');
-  sessEl.id='sess-timer';bar.appendChild(sessEl);
+
   var br=div('margin-left:auto;display:flex;gap:6px;align-items:center;');
   var pc=el('span','background:rgba(0,255,136,0.07);border:1px solid rgba(0,255,136,0.1);color:#007744;font-size:10px;padding:3px 8px;border-radius:6px;display:none;');pc.id='pcount';br.appendChild(pc);
   var lb=btn('&#128203;','background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#2a3a4a;padding:4px 12px;border-radius:8px;font-size:11px;font-weight:700;');
@@ -338,6 +358,35 @@ function renderRoom(){
   // Panel
   var panel=div('position:fixed;bottom:76px;right:18px;z-index:300;background:rgba(2,5,13,0.99);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);border:1px solid rgba(0,255,136,0.18);border-radius:22px;padding:22px 24px;width:310px;box-shadow:0 24px 80px rgba(0,0,0,.95);display:none;');
   panel.id='tp';buildPanel(panel);app.appendChild(panel);
+  // Session timer widget — TRAINER ONLY
+  if(S.isHost){
+    var sw=div('position:fixed;top:48px;left:10px;z-index:200;background:rgba(2,6,14,0.94);border:1px solid rgba(0,255,136,0.2);border-radius:14px;padding:8px 12px;display:flex;flex-direction:column;align-items:center;gap:5px;backdrop-filter:blur(12px);min-width:110px;');
+    sw.id='sess-widget';
+    // Label
+    var swLbl=div('color:#0e1e2e;font-size:8px;letter-spacing:2.5px;font-weight:700;text-align:center;');
+    swLbl.textContent='SESSÃO';sw.appendChild(swLbl);
+    // Duration display
+    var swDisp=el('span','font-size:26px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-1px;color:#4a6a7a;line-height:1;');
+    swDisp.id='sess-display';swDisp.textContent=fmtSess(S.sess.left);sw.appendChild(swDisp);
+    // +/- duration buttons (only when stopped)
+    var swAdj=div('display:flex;gap:6px;align-items:center;');
+    var swMinus=btn('-5','background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#2a4a5a;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;');
+    swMinus.id='sess-adj';swMinus.onclick=function(){sessAdjust(-300);};
+    var swPlus=btn('+5','background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#2a4a5a;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;');
+    swPlus.onclick=function(){sessAdjust(300);};
+    swAdj.appendChild(swMinus);swAdj.appendChild(swPlus);sw.appendChild(swAdj);
+    // Controls row
+    var swCtrl=div('display:flex;gap:5px;margin-top:2px;');
+    var swStart=btn('▶','background:rgba(0,255,136,0.15);border:1px solid rgba(0,255,136,0.25);color:#00ff88;border-radius:7px;padding:3px 10px;font-size:13px;font-weight:700;');
+    swStart.id='sess-start';swStart.onclick=sessStart;
+    var swPause=btn('⏸','background:rgba(255,200,0,0.12);border:1px solid rgba(255,200,0,0.22);color:#ffcc00;border-radius:7px;padding:3px 10px;font-size:13px;display:none;');
+    swPause.id='sess-pause';swPause.onclick=sessPause;
+    var swReset=btn('↺','background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#2a4a5a;border-radius:7px;padding:3px 8px;font-size:12px;');
+    swReset.onclick=sessReset;
+    swCtrl.appendChild(swStart);swCtrl.appendChild(swPause);swCtrl.appendChild(swReset);sw.appendChild(swCtrl);
+    app.appendChild(sw);
+  }
+
   // Bottom bar
   var bot=div('display:flex;align-items:center;justify-content:center;gap:10px;padding:10px 20px;background:rgba(2,4,9,0.98);border-top:1px solid rgba(255,255,255,0.03);flex-shrink:0;z-index:20;');
   function cbtn(icon,lbl,fn){var b=btn(icon,'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);color:#8a9aaa;padding:8px 14px;border-radius:50px;font-size:15px;display:flex;flex-direction:column;align-items:center;gap:2px;');var l=document.createElement('div');l.textContent=lbl;l.style.cssText='font-size:9px;color:#8a9aaa;';b.appendChild(l);b.onclick=fn;return b;}

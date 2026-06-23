@@ -58,7 +58,8 @@ var S={page:'landing',isHost:false,roomId:'',myName:'',status:'',statusType:'inf
   timer:{phase:'idle',round:0,total:0,left:0},timerOn:false,panelOpen:false,
   peer:null,calls:{},conns:{},localStream:null,timerIv:null,ts:{},
   sess:{dur:3600,left:3600,running:false,iv:null},
-  layout:'galeria',spotlight:null};
+  layout:'galeria',spotlight:null,
+  vad:{on:false,talking:false,threshold:18,silenceTimer:null,ctx:null,analyser:null,iv:null,trainerMutedPeers:{}}};
 
 /* ══ GRID LAYOUT ══ */
 function gridLayout(n){
@@ -189,6 +190,27 @@ function applyCmd(cmd){
 }
 function bcast(cmd){Object.values(S.conns).forEach(function(c){try{c.send(cmd);}catch(e){}});}
 
+/* Handle participant-side auto-mute */
+var _origApplyCmd=applyCmd;
+function handleRemoteCmd(cmd){
+  if(cmd.action==='mute-mic'){
+    var t=S.localStream&&S.localStream.getAudioTracks()[0];
+    if(t&&t.enabled){t.enabled=false;S.vad.trainerMutedPeers['self']=true;showMutedByTrainer(true);}
+    return;
+  }
+  if(cmd.action==='unmute-mic'){
+    var t2=S.localStream&&S.localStream.getAudioTracks()[0];
+    if(t2&&S.vad.trainerMutedPeers['self']){t2.enabled=true;delete S.vad.trainerMutedPeers['self'];showMutedByTrainer(false);}
+    return;
+  }
+  applyCmd(cmd);
+}
+function showMutedByTrainer(muted){
+  var el=document.getElementById('muted-by-trainer');
+  if(!el)return;
+  el.style.display=muted?'flex':'none';
+}
+
 /* ══ SESSION TIMER (trainer only) ══ */
 function fmtSess(s){var h=Math.floor(s/3600);s=s%3600;var m=Math.floor(s/60);var sec=s%60;return(h>0?(h<10?'0':'')+h+':':'')+(m<10?'0':'')+m+':'+(sec<10?'0':'')+sec;}
 function updateSessDisplay(){
@@ -232,6 +254,71 @@ function sessAdjust(delta){
 var PH={idle:{c:'#2a3a50',l:'PRONTO',bg:'rgba(20,35,55,0.6)'},work:{c:'#00ff88',l:'TRABALHO',bg:'rgba(0,255,136,0.1)'},rest:{c:'#ff3d5a',l:'DESCANSO',bg:'rgba(255,61,90,0.1)'},done:{c:'#ffd700',l:'COMPLETO!',bg:'rgba(255,215,0,0.1)'}};
 var PRESETS=[{n:'Tabata',w:20,r:10,rds:8},{n:'40/20',w:40,r:20,rds:8},{n:'30/30',w:30,r:30,rds:10},{n:'Boxe 3\'',w:180,r:60,rds:6},{n:'AMRAP 5\'',w:300,r:60,rds:5},{n:'Sprint 15/45',w:15,r:45,rds:12}];
 
+/* ══ VOICE ACTIVITY DETECTION ══ */
+function startVAD(stream){
+  if(!S.isHost) return;
+  try{
+    var ctx=new(window.AudioContext||window.webkitAudioContext)();
+    var analyser=ctx.createAnalyser();
+    analyser.fftSize=512;
+    var src=ctx.createMediaStreamSource(stream);
+    src.connect(analyser);
+    S.vad.ctx=ctx; S.vad.analyser=analyser;
+    var data=new Uint8Array(analyser.frequencyBinCount);
+    S.vad.iv=setInterval(function(){
+      if(!S.vad.on) return;
+      analyser.getByteFrequencyData(data);
+      var sum=0; for(var i=0;i<data.length;i++) sum+=data[i];
+      var avg=sum/data.length;
+      if(avg>S.vad.threshold){
+        clearTimeout(S.vad.silenceTimer);
+        if(!S.vad.talking){
+          S.vad.talking=true;
+          bcast({action:'mute-mic',by:'trainer'});
+          updateVADIndicator();
+        }
+        S.vad.silenceTimer=setTimeout(function(){
+          S.vad.talking=false;
+          bcast({action:'unmute-mic'});
+          updateVADIndicator();
+        },1200);
+      }
+    },80);
+  }catch(e){console.warn('VAD error:',e);}
+}
+function stopVAD(){
+  clearInterval(S.vad.iv);
+  clearTimeout(S.vad.silenceTimer);
+  if(S.vad.ctx) try{S.vad.ctx.close();}catch(e){}
+  S.vad.ctx=null;S.vad.analyser=null;S.vad.talking=false;
+  if(S.vad.on) bcast({action:'unmute-mic'});
+  updateVADIndicator();
+}
+function toggleVAD(){
+  S.vad.on=!S.vad.on;
+  if(!S.vad.on){S.vad.talking=false;bcast({action:'unmute-mic'});}
+  updateVADIndicator();
+  var b=document.getElementById('vad-btn');
+  if(b){
+    b.style.background=S.vad.on?'rgba(0,255,136,0.18)':'rgba(255,255,255,0.04)';
+    b.style.borderColor=S.vad.on?'rgba(0,255,136,0.35)':'rgba(255,255,255,0.07)';
+    b.style.color=S.vad.on?'#00ff88':'#2a3a4a';
+  }
+}
+function updateVADIndicator(){
+  var ind=document.getElementById('vad-ind');
+  if(!ind) return;
+  if(S.vad.on && S.vad.talking){
+    ind.style.display='flex'; ind.textContent='🎙 A falar — participantes silenciados';
+    ind.style.background='rgba(0,255,136,0.1)'; ind.style.borderColor='rgba(0,255,136,0.3)'; ind.style.color='#00ff88';
+  } else if(S.vad.on && !S.vad.talking){
+    ind.style.display='flex'; ind.textContent='👂 Auto-silêncio ativo';
+    ind.style.background='rgba(0,100,60,0.08)'; ind.style.borderColor='rgba(0,200,100,0.15)'; ind.style.color='#00aa55';
+  } else {
+    ind.style.display='none';
+  }
+}
+
 /* ══ JOIN ══ */
 function joinRoom(asHost){
   if(!S.roomId.trim())return;
@@ -245,17 +332,19 @@ function joinRoom(asHost){
       else { onFail(e); }
     });
   }
+  var audioConstraints={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
   tryGetMedia(
-    {video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},audio:true},
+    {video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},audio:audioConstraints},
     [
-      {video:{facingMode:'user'},audio:true},
+      {video:{facingMode:'user'},audio:audioConstraints},
+      {video:true,audio:audioConstraints},
       {video:true,audio:true},
-      {video:true,audio:false},
-      {video:false,audio:true}
+      {video:false,audio:audioConstraints}
     ],
     function(stream){
     S.localStream=stream;
     var lv=document.getElementById('local-video');if(lv)lv.srcObject=stream;
+    if(asHost) startVAD(stream);
     setStatus('A ligar...','info');
     loadPeer(function(){
       var hostId='pm'+code+'host';
@@ -266,7 +355,7 @@ function joinRoom(asHost){
         setStatus(asHost?'Sala aberta — aguarda clientes...':'Ligado!','ok');
         if(!asHost){
           var conn=peer.connect(hostId,{reliable:true,metadata:{name:S.myName||'Participante'}});
-          conn.on('open',function(){S.conns[hostId]=conn;conn.on('data',applyCmd);conn.on('close',function(){delete S.conns[hostId];});});
+          conn.on('open',function(){S.conns[hostId]=conn;conn.on('data',handleRemoteCmd);conn.on('close',function(){delete S.conns[hostId];});});
           var call=peer.call(hostId,stream,{metadata:{name:S.myName||'Participante'}});
           if(call){S.calls[hostId]=call;call.on('stream',function(rs){addRemote(hostId,'Trainer',rs);setStatus('','ok');});call.on('close',function(){removeRemote(hostId);});}
         }
@@ -300,7 +389,7 @@ function addRemote(id,name,stream){
 }
 function removeRemote(id){delete S.remotes[id];rebuildGrid();}
 function leaveRoom(){
-  killTimer();if(S.localStream)S.localStream.getTracks().forEach(function(t){t.stop();});
+  stopVAD();killTimer();if(S.localStream)S.localStream.getTracks().forEach(function(t){t.stop();});
   if(S.peer)S.peer.destroy();
   S.peer=null;S.calls={};S.conns={};S.localStream=null;S.remotes={};S.timerOn=false;S.panelOpen=false;
   S.timer={phase:'idle',round:0,total:0,left:0};S.page='landing';S.status='';render();
@@ -433,6 +522,86 @@ function renderRoom(){
     ttb.id='ttb';
     ttb.onclick=function(){S.panelOpen=!S.panelOpen;var p=document.getElementById('tp');if(p)p.style.display=S.panelOpen?'block':'none';ttb.style.background=S.panelOpen?'#00ff88':'rgba(255,255,255,0.04)';ttb.style.color=S.panelOpen?'#000':'#2a3a4a';};
     br.appendChild(ttb);
+    // VAD auto-mute button + sensitivity panel (trainer only)
+    var vadBtn=btn('🎙 Auto','background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#2a3a4a;padding:4px 12px;border-radius:8px;font-size:11px;font-weight:700;');
+    vadBtn.id='vad-btn';vadBtn.title='Auto-silenciar participantes quando falo';
+    vadBtn.onclick=function(){
+      var panel=document.getElementById('vad-panel');
+      if(panel){panel.parentNode.removeChild(panel);return;}
+      var p=div('position:fixed;z-index:9000;background:rgba(4,10,22,0.98);border:1px solid rgba(0,255,136,0.2);border-radius:16px;padding:18px 20px;width:230px;box-shadow:0 16px 50px rgba(0,0,0,.9);');
+      p.id='vad-panel';
+      // Position below the button
+      var bRect=vadBtn.getBoundingClientRect();
+      p.style.top=(bRect.bottom+6)+'px';p.style.right=(window.innerWidth-bRect.right)+'px';
+      // Toggle row
+      var trow=div('display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;');
+      var tlbl=el('span','color:#00cc66;font-size:12px;font-weight:800;letter-spacing:2px;');tlbl.textContent='🎙 AUTO-SILÊNCIO';
+      var tgl=div('width:40px;height:22px;border-radius:11px;cursor:pointer;position:relative;transition:background .2s;');
+      var tglKnob=div('position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;');
+      tgl.appendChild(tglKnob);
+      var updateToggle=function(){
+        tgl.style.background=S.vad.on?'#00ff88':'rgba(255,255,255,0.12)';
+        tglKnob.style.left=S.vad.on?'21px':'3px';
+      };
+      updateToggle();
+      tgl.onclick=function(){toggleVAD();updateToggle();};
+      trow.appendChild(tlbl);trow.appendChild(tgl);p.appendChild(trow);
+      // Sensitivity slider
+      var slbl=div('color:#1a3a28;font-size:10px;letter-spacing:2px;margin-bottom:8px;');slbl.textContent='SENSIBILIDADE';p.appendChild(slbl);
+      var srow=div('display:flex;align-items:center;gap:10px;margin-bottom:6px;');
+      var slow=el('span','color:#0a2a18;font-size:9px;');slow.textContent='Baixa';
+      var slider=document.createElement('input');
+      slider.type='range';slider.min='5';slider.max='40';slider.step='1';
+      slider.value=''+(40-S.vad.threshold+5); // invert: high value = low threshold = more sensitive
+      slider.style.cssText='flex:1;accent-color:#00ff88;height:4px;cursor:pointer;';
+      var shigh=el('span','color:#0a2a18;font-size:9px;');shigh.textContent='Alta';
+      srow.appendChild(slow);srow.appendChild(slider);srow.appendChild(shigh);p.appendChild(srow);
+      // Threshold value hint
+      var hint=div('color:#007744;font-size:10px;text-align:center;margin-bottom:14px;');
+      var updateHint=function(){
+        var lvl=parseInt(slider.value);
+        var label=lvl<15?'Pouco sensível (ruído alto)':lvl<28?'Sensibilidade média':lvl<38?'Alta sensibilidade':'Máxima sensibilidade';
+        hint.textContent=label;
+      };
+      updateHint();p.appendChild(hint);
+      slider.oninput=function(){
+        // slider high value → low threshold (more sensitive)
+        S.vad.threshold=45-parseInt(this.value);
+        updateHint();
+      };
+      // Live level meter
+      var meterLbl=div('color:#1a3a28;font-size:10px;letter-spacing:2px;margin-bottom:6px;');meterLbl.textContent='NÍVEL DO MICROFONE';p.appendChild(meterLbl);
+      var meterBg=div('background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;margin-bottom:14px;');
+      var meterBar=div('height:100%;width:0%;border-radius:4px;background:#00ff88;transition:width .08s;');
+      meterBg.appendChild(meterBar);p.appendChild(meterBg);
+      // Update meter from analyser
+      var meterIv=setInterval(function(){
+        if(!S.vad.analyser){meterBar.style.width='0%';return;}
+        var d=new Uint8Array(S.vad.analyser.frequencyBinCount);
+        S.vad.analyser.getByteFrequencyData(d);
+        var sum=0;for(var i=0;i<d.length;i++)sum+=d[i];
+        var avg=sum/d.length;
+        var pct=Math.min(100,avg*2.5);
+        meterBar.style.width=pct+'%';
+        var aboveThresh=avg>S.vad.threshold;
+        meterBar.style.background=aboveThresh?'#00ff88':'#1a4a28';
+        // Draw threshold marker
+        var threshPct=Math.min(100,S.vad.threshold*2.5);
+        meterBg.style.boxShadow='inset '+threshPct+'% 0 0 0 rgba(0,255,136,0.0)';
+      },80);
+      // Close button
+      var closeRow=div('display:flex;justify-content:center;');
+      var closeBtn=btn('Fechar','background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#2a4a5a;border-radius:8px;padding:5px 20px;font-size:12px;');
+      closeBtn.onclick=function(){clearInterval(meterIv);p.parentNode.removeChild(p);};
+      closeRow.appendChild(closeBtn);p.appendChild(closeRow);
+      document.body.appendChild(p);
+      // Close on outside click
+      setTimeout(function(){
+        var outside=function(ev){if(!p.contains(ev.target)&&ev.target!==vadBtn){clearInterval(meterIv);if(p.parentNode)p.parentNode.removeChild(p);document.removeEventListener('click',outside);}};
+        document.addEventListener('click',outside);
+      },10);
+    };
+    br.appendChild(vadBtn);
   }
   // Layout switcher
   var layoutIcons={galeria:'⊞',orador:'▣',destaque:'🎯'};
@@ -488,6 +657,17 @@ function renderRoom(){
   var sp=div('width:28px;height:28px;border:3px solid rgba(0,255,136,0.15);border-top-color:#00ff88;border-radius:50%;animation:spin .9s linear infinite;');
   var wm=div('color:#0e1c2e;font-size:13px;text-align:center;padding:0 20px;line-height:1.7;');wm.textContent=S.isHost?'A aguardar participantes...':'A ligar ao trainer...';
   wt.appendChild(sp);wt.appendChild(wm);grid.appendChild(wt);
+  // VAD indicator (trainer only)
+  if(S.isHost){
+    var vadInd=div('display:none;position:absolute;bottom:70px;left:50%;transform:translateX(-50%);z-index:100;background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.3);color:#00ff88;font-size:11px;font-weight:700;padding:5px 16px;border-radius:20px;letter-spacing:1px;white-space:nowrap;pointer-events:none;align-items:center;gap:6px;');
+    vadInd.id='vad-ind';grid.appendChild(vadInd);
+  }
+  // Muted-by-trainer overlay (participant only)
+  if(!S.isHost){
+    var mutedOv=div('display:none;position:absolute;bottom:70px;left:50%;transform:translateX(-50%);z-index:100;background:rgba(255,60,60,0.12);border:1px solid rgba(255,60,60,0.3);color:#ff7070;font-size:11px;font-weight:700;padding:5px 16px;border-radius:20px;letter-spacing:1px;white-space:nowrap;pointer-events:none;align-items:center;gap:6px;');
+    mutedOv.id='muted-by-trainer';mutedOv.textContent='🔇 Microfone silenciado pelo trainer';
+    grid.appendChild(mutedOv);
+  }
   // Timer overlay
   var ov=div('position:absolute;inset:0;z-index:50;display:none;align-items:center;justify-content:center;pointer-events:none;');
   ov.id='timer-overlay';
